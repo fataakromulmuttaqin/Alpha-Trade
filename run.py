@@ -37,10 +37,47 @@ class AppState:
         self._last_sig_time = None
         self.server = None
         self.lock = asyncio.Lock()
+        self.sensitivity = "golden"                  # preset mode aktif
+        self.exit_protocol = "quick"
+        self.demo = False
+        self._view_cache = {}                        # view_tf -> (ts, snap)
 
     # ---- dipakai DashboardServer
-    def snapshot(self):
-        return self.snapshot_data
+    def snapshot(self, view_tf=None):
+        """Snapshot TF entry (cache) atau hitung on-demand untuk TF lain."""
+        if not view_tf or view_tf == self.entry_tf:
+            return self.snapshot_data
+        hit = self._view_cache.get(view_tf)
+        if hit and (time.time() - hit[0]) < 5:
+            return hit[1]
+        snap = build_snapshot(dict(self.buffers), self.cfg, self.signals_log,
+                              symbol=self.label, view_tf=view_tf)
+        if snap:
+            snap["demo"] = self.demo
+            snap["exec_mode"] = self.executor.mode
+            snap["engine_entry"] = self.entry_tf
+            snap["view_only"] = True
+            self._view_cache[view_tf] = (time.time(), snap)
+        return snap
+
+    def apply_settings(self, body):
+        """POST /api/settings: sensitivity + exit_protocol -> preset Config."""
+        from godmode_engine import apply_mode
+        out = {"applied": []}
+        sens = body.get("sensitivity")
+        if sens in ("golden", "aggressive", "standard", "precision", "pingpong"):
+            self.sensitivity = sens
+            apply_mode(self.cfg, sensitivity=sens)
+            out["applied"].append("sensitivity:" + sens)
+        ex = body.get("exit_protocol")
+        if ex in ("quick", "nitro", "hold"):
+            self.exit_protocol = ex
+            apply_mode(self.cfg, exit_protocol=ex)
+            out["applied"].append("exit:" + ex)
+        out["sensitivity"] = self.sensitivity
+        out["exit_protocol"] = self.exit_protocol
+        print(f"[settings] {out}", flush=True)
+        return out
 
     def candles(self, tf, limit=1500):
         df = self.buffers.get(tf)
@@ -58,6 +95,7 @@ class AppState:
 
     def health(self):
         return {"ok": True, "symbol": self.label, "mode": self.executor.mode,
+                "sensitivity": self.sensitivity, "exit_protocol": self.exit_protocol,
                 "tfs": list(self.buffers), "bars": {t: len(b) for t, b in self.buffers.items()},
                 "clients": len(self.server.clients) if self.server else 0}
 
@@ -78,7 +116,9 @@ class AppState:
             if snap:
                 snap["demo"] = demo
                 snap["exec_mode"] = self.executor.mode
+                snap["engine_entry"] = self.entry_tf
             self.snapshot_data = snap
+            self._view_cache.clear()          # snapshot TF lain ikut basi
 
         if self.server:
             self.server.broadcast_threadsafe({"type": "snapshot", "data": snap})
@@ -195,6 +235,7 @@ async def main():
 
     if args.demo:
         state.entry_tf, state.htf = "5m", "4h"
+        state.demo = True
         print(f"[run] mode DEMO — {state.label} (sintetis) | exec={executor.mode}", flush=True)
         feed = DemoFeed(entry_tf="5m", htf="4h")
     else:

@@ -30,6 +30,40 @@ from smc_structure import structure_events
 PIP = 10.0  # XAUUSD: 1 pip = 0.1 pt -> strength poin = pt; 25 pips = 2.5 pt
 
 
+# ----------------------------- Preset mode (header GODMODE) -----------------
+SENSITIVITY_PRESETS = {
+    # goldendefault = parameter dasar (GOLDEN SIGNAL Elite: selektif penuh)
+    "golden":    {},
+    "aggressive": {"confirm_window": 1, "rsi_pull_long": 50, "rsi_pull_short": 50,
+                   "atr_pct_low": 0.05, "cooldown": 5},
+    "standard":  {"confirm_window": 2},
+    "precision": {"confirm_window": 4, "cooldown": 20, "vp_prox_atr": 0.5},
+    "pingpong":  {"rsi_pull_long": 45, "rsi_pull_short": 55, "vp_prox_atr": 1.0,
+                  "atr_pct_low": 0.05},
+}
+
+EXIT_PRESETS = {
+    "quick": {},                                   # DYNAMIC TRAILING (default engine)
+    "nitro": {"tp1_rr": 1.0, "tp2_rr": 1.5, "sl_atr_max": 2.0},   # NITRO SCALP
+    "hold":  {"tp1_rr": 2.0, "tp2_rr": 4.0, "max_hold_bars": None},  # INSTITUTIONAL HOLD
+}
+
+
+def apply_mode(cfg, sensitivity=None, exit_protocol=None):
+    """Terapkan preset mode ke Config (mutasi in-place). None = biarkan."""
+    from dataclasses import fields as dc_fields
+    valid = {f.name for f in dc_fields(cfg)}
+    if sensitivity:
+        for k, v in SENSITIVITY_PRESETS.get(sensitivity, {}).items():
+            if k in valid:
+                setattr(cfg, k, v)
+    if exit_protocol:
+        for k, v in EXIT_PRESETS.get(exit_protocol, {}).items():
+            if k in valid:
+                setattr(cfg, k, v)
+    return cfg
+
+
 # ----------------------------- Kondisi pasar --------------------------------
 def market_condition(df, lookback=60):
     """[TRENDING] bila range bergerak jauh dari tengah; [SIDEWAYS] bila mampu."""
@@ -373,6 +407,76 @@ def ai_reasoning(df, zones_multi, two_stage_info, cf):
         karena = f"Karena rejection terkonfirmasi di zona {sisi} dan skor confluence {cf['score']}/100."
         maka = f"Maka {cf['action']}. Eksekusi sesuai setup {two_stage_info['label']} dengan SL/TP dari engine."
     return {"situasi": situasi, "karena": karena, "maka": maka}
+
+
+# ----------------------------- FVG & Order Blocks ---------------------------
+def fvg_zones(df, max_age=80, max_gaps=5):
+    """Fair Value Gap (3-candle gap) yang belum ter-fill penuh.
+    Bull: low[i] > high[i-2] -> gap = (high[i-2], low[i]).
+    Bear: high[i] < low[i-2] -> gap = (high[i], low[i-2])."""
+    h, l, o, c = (df[k].to_numpy() for k in ("open", "high", "low", "close"))
+    n = len(df)
+    out = []
+    for i in range(2, n):
+        if l[i] > h[i - 2]:                                   # bullish gap
+            top, bottom = float(l[i]), float(h[i - 2])
+            kind = "bull"
+        elif h[i] < l[i - 2]:                                 # bearish gap
+            top, bottom = float(l[i - 2]), float(h[i])
+            kind = "bear"
+        else:
+            continue
+        # ter-fill penuh bila harga berikutnya menembus seluruh gap
+        if kind == "bull" and i + 1 < n and l[i + 1:].min() <= bottom:
+            continue
+        if kind == "bear" and i + 1 < n and h[i + 1:].max() >= top:
+            continue
+        age = n - 1 - i
+        if age <= max_age:
+            out.append({"kind": kind, "top": round(top, 2), "bottom": round(bottom, 2),
+                        "age": int(age)})
+    out.sort(key=lambda g: g["age"])                          # terbaru dulu
+    return out[:max_gaps]
+
+
+def order_blocks(df, L=5, max_blocks=4, lookback=250):
+    """Order Block = candle berlawanan terakhir sebelum impuls yang mem-break
+    struktur (BOS/CHoCH). Aktif bila harga belum menembus balik melewati OB."""
+    w = df.tail(lookback)
+    ev = structure_events(w, L)
+    o, h, l, c = (w[k].to_numpy() for k in ("open", "high", "low", "close"))
+    n = len(w)
+    blocks = []
+    for kind, col in (("bull", "bos_bull"), ("bull", "choch_bull"),
+                      ("bear", "bos_bear"), ("bear", "choch_bear")):
+        bars = list(w.index[ev[col]])
+        for t in bars[-2:]:                                   # break terbaru per jenis
+            i = w.index.get_loc(t)
+            j = i - 1
+            if kind == "bull":                                # cari candle bearish terakhir
+                while j >= 0 and c[j] >= o[j]:
+                    j -= 1
+            else:                                             # candle bullish terakhir
+                while j >= 0 and c[j] <= o[j]:
+                    j -= 1
+            if j < 0:
+                continue
+            top, bottom = float(h[j]), float(l[j])
+            # sudah dimitigasi penuh?
+            if kind == "bull" and i + 1 < n and l[i + 1:].min() <= bottom:
+                continue
+            if kind == "bear" and i + 1 < n and h[i + 1:].max() >= top:
+                continue
+            blocks.append({"kind": kind, "top": round(top, 2), "bottom": round(bottom, 2),
+                           "time": str(w.index[j])})
+    # dedup by (kind, top, bottom) + ambil terbaru
+    seen, uniq = set(), []
+    for b in blocks:
+        key = (b["kind"], b["top"], b["bottom"])
+        if key not in seen:
+            seen.add(key)
+            uniq.append(b)
+    return uniq[:max_blocks]
 
 
 # ----------------------------- Forecast v5.0 --------------------------------

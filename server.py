@@ -67,7 +67,8 @@ class DashboardServer:
                     return self._json({"http_port": srv.http_port,
                                        "ws_port": srv.ws_port})
                 if u.path == "/api/snapshot":
-                    snap = srv.state.snapshot()
+                    q = parse_qs(u.query)
+                    snap = srv.state.snapshot(view_tf=(q.get("tf") or [None])[0])
                     if snap is None:
                         return self._json({"error": "buffer belum siap"}, 503)
                     return self._json(snap)
@@ -99,6 +100,20 @@ class DashboardServer:
                 self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
                 self.wfile.write(body)
+
+            def do_POST(self):
+                u = urlparse(self.path)
+                if u.path != "/api/settings":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                    body = json.loads(self.rfile.read(length) or b"{}")
+                except Exception:
+                    return self._json({"error": "body JSON tidak valid"}, 400)
+                result = srv.state.apply_settings(body)
+                return self._json(result)
 
         return H
 

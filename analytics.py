@@ -15,10 +15,10 @@ import pandas as pd
 
 from confluence_engine import Config, atr as atr_fn, ema, generate_signals, rsi
 from godmode_engine import (ai_reasoning, classify_setup, choch_recent,
-                            confluence_godmode, events_full, forecast,
-                            market_condition, multi_zones, rsi_divergence_recent,
-                            session_info, structure_label, trend_lamps,
-                            two_stage)
+                            confluence_godmode, events_full, forecast, fvg_zones,
+                            market_condition, multi_zones, order_blocks,
+                            rsi_divergence_recent, session_info, structure_label,
+                            trend_lamps, two_stage)
 from smc_structure import structure_events
 
 
@@ -273,12 +273,19 @@ def header_stats(df, df_htf, cfg, cf=None):
             "fib": f.get("state", "-"), "equilibrium": f.get("equilibrium")}
 
 
-def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD"):
-    """Snapshot penuh dashboard. buffers = {tf: DataFrame} (semua bar close)."""
-    tfs = sorted(buffers, key=lambda t: {"1m": 1, "5m": 5, "15m": 15, "30m": 30,
-                                         "1h": 60, "4h": 240, "1d": 1440}.get(t, 0))
-    tf_entry = tfs[0] if tfs else None
-    tf_htf = tfs[-1] if len(tfs) > 1 else None
+def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD", view_tf=None):
+    """Snapshot penuh dashboard. buffers = {tf: DataFrame} (semua bar close).
+    `view_tf`: TF yang sedang dilihat di chart — panel entry dihitung untuk TF itu
+    (HTF = TF berikutnya yang lebih besar dari daftar buffer)."""
+    order = {"1m": 1, "3m": 2, "5m": 5, "15m": 15, "30m": 30, "1h": 60,
+             "4h": 240, "1d": 1440}
+    tfs = sorted(buffers, key=lambda t: order.get(t, 0))
+    if view_tf and view_tf in buffers:
+        tf_entry = view_tf
+    else:
+        tf_entry = tfs[0] if tfs else None
+    higher = [t for t in tfs if order.get(t, 0) > order.get(tf_entry, 0)]
+    tf_htf = higher[0] if higher else None
     df = buffers.get(tf_entry)
     df_htf = buffers.get(tf_htf)
     if df is None or len(df) < 260:
@@ -345,6 +352,8 @@ def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD"):
         "session": session_info(),
         "ai_reasoning": ai_reasoning(df, zm, ts_info, cf),
         "forecast": forecast(df, setup["entry"] if setup else None),
+        "fvg": fvg_zones(df),
+        "order_blocks": order_blocks(df),
         "overlays": {"eq": f.get("eq"), "gp": f.get("gp"), "ote": f.get("ote"),
                      "range_high": f.get("high"), "range_low": f.get("low"),
                      "supply": [z["supply"]["top"], z["supply"]["bottom"]] if "supply" in z else None,

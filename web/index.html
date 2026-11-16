@@ -15,7 +15,7 @@
     <button class="icon-btn" id="btn-back" title="back">←</button>
     <span class="brand-name">ALPHA-TRADE</span>
     <span class="brand-sub">SMC ENGINE</span>
-    <span class="chip chip-dim">v3.1</span>
+    <span class="chip chip-dim">v5.0</span>
   </div>
   <div class="topbar-right">
     <button class="chip toggle" data-toggle="ALARM">ALARM OFF</button>
@@ -48,6 +48,18 @@
     <span class="label-dim">SIGNAL MODE:</span>
     <button class="chip mode-gold" id="chip-golden">SIGNAL GOLDEN: ON</button>
     <button class="chip mode-dim" id="chip-highrisk">SIGNAL HIGH RISK: OFF</button>
+    <select id="sel-sensitivity" class="sel-mode" title="Algorithm Sensitivity">
+      <option value="golden">GOLDEN SIGNAL (Elite)</option>
+      <option value="aggressive">AGGRESSIVE (Momentum)</option>
+      <option value="standard">STANDARD (Balanced)</option>
+      <option value="precision">PRECISION (Confluence)</option>
+      <option value="pingpong">PING PONG (Sideways)</option>
+    </select>
+    <select id="sel-exit" class="sel-mode" title="Exit Protocol">
+      <option value="nitro">NITRO SCALP (FASTEST)</option>
+      <option value="quick">QUICK TRAILING (BALANCED)</option>
+      <option value="hold">INSTITUTIONAL HOLD (TREND)</option>
+    </select>
     <span class="chip chip-dim" id="session-chip">SESI: --</span>
   </div>
 </div>
@@ -77,7 +89,8 @@
         <button class="chip bars-btn on" data-bars="80">80</button>
         <button class="chip bars-btn" data-bars="150">150</button>
         <button class="chip bars-btn" data-bars="0">ALL</button>
-        <span class="chip chip-green" id="chart-structure">EXPANDING</span>
+        <button class="chip" id="forecast-chip" title="Proyeksi ATR: TP1/TP2/TP3 1x/2x/3x, SL 1.5x">FORECAST: --</button>
+        <span class="chip chip-green" id="chart-structure">--</span>
       </div>
     </div>
     <div id="chart"></div>
@@ -156,15 +169,28 @@
       <div class="zone-foot"><span class="dim-text" id="dem-strength">Strength: --</span><span class="chip chip-amber" id="dem-status">—</span></div>
     </div>
     <div class="zone-list" id="zone-list"></div>
+    <div class="risk-calc">
+      <div class="card-title" style="margin-top:12px">RISK CALCULATOR</div>
+      <div class="risk-grid">
+        <label>Balance (IDR)<input id="rc-balance" type="number" value="1500000"></label>
+        <label>Risk (%)<input id="rc-risk" type="number" value="3" step="0.5"></label>
+        <label>USD/IDR<input id="rc-kurs" type="number" value="16000"></label>
+        <label>Contract Size<input id="rc-contract" type="number" value="1" step="0.1"></label>
+      </div>
+      <div class="risk-out">
+        <div><div class="zone-cap">MAX LOSS / TRADE</div><div class="setup-val gold-text" id="rc-maxloss">--</div></div>
+        <div><div class="zone-cap">LOT SARAN (dari setup)</div><div class="setup-val" id="rc-lot">--</div></div>
+      </div>
+    </div>
   </div>
 
   <!-- structure events -->
   <div class="card events-card">
-    <div class="card-head"><div class="card-title">MARKET STRUCTURE EVENTS <span class="info">ⓘ</span></div><span class="chip chip-dim" id="events-state">EXPANDING</span></div>
+    <div class="card-head"><div class="card-title">MARKET STRUCTURE EVENTS <span class="info">ⓘ</span></div><span class="chip chip-dim" id="events-state">--</span></div>
     <div id="events-list" class="events-list"></div>
   </div>
 
-  <!-- right bottom: heatmap + setup + log -->
+  <!-- right bottom: heatmap + setup + journal + log -->
   <div class="bottom-right">
     <div class="card heatmap-card">
       <div class="card-head"><div class="card-title">MTF CONFLUENCE HEATMAP</div><span class="chip chip-green" id="hm-bias">MONITORING</span></div>
@@ -184,6 +210,17 @@
         <div class="setup-cell"><div class="zone-cap" id="su-tp2-cap">TP 2</div><div class="setup-val green-text" id="su-tp2">--</div></div>
       </div>
       <div class="rr-box"><div class="zone-cap">RISK / REWARD</div><div class="rr-val gold-text" id="su-rr">--</div></div>
+    </div>
+
+    <div class="card journal-card">
+      <div class="card-head"><div class="card-title">INSTITUTIONAL JOURNAL</div><span class="chip chip-dim" id="jr-winrate">0%</span></div>
+      <div class="journal-row">
+        <span class="dim-text">Wins: <b id="jr-wins" class="green-text">0</b></span>
+        <span class="dim-text">Losses: <b id="jr-losses" class="red-text">0</b></span>
+        <button class="btn-ghost sm green-border" id="jr-win">+ WIN</button>
+        <button class="btn-ghost sm red-border" id="jr-loss">+ LOSS</button>
+        <button class="btn-ghost sm" id="jr-reset">Reset</button>
+      </div>
     </div>
 
     <div class="card log-card">

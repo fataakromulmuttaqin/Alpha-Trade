@@ -214,6 +214,25 @@ button { cursor: pointer; font-family: inherit; }
 .zone-pill.dem { color: var(--green); border-color: rgba(22,199,132,.35); }
 .setup-label { margin: -4px 0 8px; font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--gold); }
 
+/* selector mode */
+.sel-mode { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 5px 8px; font-size: 11px; font-weight: 700; }
+
+/* risk calculator */
+.risk-calc { margin-top: 4px; }
+.risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.risk-grid label { display: flex; flex-direction: column; gap: 4px; color: var(--dim); font-size: 10px; letter-spacing: .06em; }
+.risk-grid input { background: var(--panel-2); border: 1px solid var(--border); color: var(--gold); font-family: var(--mono); border-radius: 6px; padding: 5px 8px; width: 100%; }
+.risk-out { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.risk-out > div { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+
+/* journal */
+.journal-card .journal-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-family: var(--mono); font-size: 11px; }
+.green-border { border-color: rgba(22,199,132,.5); color: var(--green); }
+.red-border { border-color: rgba(234,57,67,.5); color: var(--red); }
+#forecast-chip.bull { color: var(--green); border-color: rgba(22,199,132,.45); }
+#forecast-chip.bear { color: var(--red); border-color: rgba(234,57,67,.45); }
+#forecast-chip.on { background: var(--gold-soft); border-color: var(--gold); color: var(--gold); }
+
 @media (max-width: 1200px) {
   .stat-row { grid-template-columns: repeat(3, 1fr); }
   .main-grid, .bottom-grid { grid-template-columns: 1fr; }

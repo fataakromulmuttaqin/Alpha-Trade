@@ -1,16 +1,22 @@
-/* ALPHA-TRADE dashboard client
-   Chart: lightweight-charts v4 (vendored). Data: REST /api/* + WS broadcast. */
+/* ALPHA-TRADE dashboard client v5.0
+   Chart: lightweight-charts v5 (vendored). Data: REST /api/* + WS broadcast.
+   Toggle chart: OB (order blocks + zona S/D), FVG (gap 3-candle), CVD (garis
+   delta volume), RR (Entry/SL/TP setup), LIMIT (level S1-S3/D1-D3),
+   FORECAST (proyeksi ATR). ALARM/SND/NOTIF = alert sinyal. */
 "use strict";
 
 const state = {
-  chart: null, series: null, candles: [], activeTf: null,
-  priceLines: [], ws: null, wsBackoff: 1000, snap: null,
-  toggles: { RR: true, OB: true, CVD: true, FVG: true },
+  chart: null, series: null, candles: [], activeTf: null, engineTf: null,
+  snap: null, ws: null, wsBackoff: 1000,
+  lines: { OB: [], FVG: [], LIMIT: [], RR: [], FORECAST: [], BASE: [] },
+  cvdSeries: null, markersApi: null,
+  toggles: {},
+  audioCtx: null, lastSigKey: null, lastStage: -1,
+  barCount: 80,
 };
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? "--" : Number(v).toFixed(d);
-const cls = (v) => String(v || "").toUpperCase();
 
 /* ============================== CHART ============================== */
 function initChart() {
@@ -26,6 +32,12 @@ function initChart() {
     upColor: "#16c784", downColor: "#ea3943", borderVisible: false,
     wickUpColor: "#16c784", wickDownColor: "#ea3943",
   });
+  state.cvdSeries = state.chart.addSeries(LightweightCharts.LineSeries, {
+    color: "#d9b64a", lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
+    priceScaleId: "cvd",
+  });
+  state.chart.priceScale("cvd").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
+  state.markersApi = LightweightCharts.createSeriesMarkers(state.series, []);
 }
 
 async function loadCandles(tf) {
@@ -39,89 +51,187 @@ async function loadCandles(tf) {
   state.activeTf = tf;
   document.querySelectorAll(".tf-btn").forEach(b => b.classList.toggle("on", b.dataset.tf === tf));
   $("active-tf").textContent = tf.toUpperCase();
+  updateCvdSeries();
   fitBars();
-  applyOverlays(state.snap, tf);
+  drawOverlays();
   return true;
+}
+
+function updateCvdSeries() {
+  if (!state.cvdSeries) return;
+  let acc = 0;
+  const rows = state.candles.map(c => {
+    acc += Math.sign(c[4] - c[1]) * c[5];
+    return { time: c[0] / 1000, value: acc };
+  });
+  state.cvdSeries.setData(rows);
 }
 
 function fitBars() {
   const n = state.candles.length;
-  const vis = currentBars();
+  const vis = state.barCount;
   if (!vis || vis >= n) { state.chart.timeScale().fitContent(); return; }
   state.chart.timeScale().setVisibleLogicalRange({ from: n - vis, to: n + 3 });
 }
-let barCount = 80;
-function currentBars() { return barCount || 0; }
 
 /* ============================== OVERLAYS ============================== */
-function clearLines() {
-  state.priceLines.forEach(l => { try { state.series.removePriceLine(l); } catch (e) {} });
-  state.priceLines = [];
+function clearLines(kind) {
+  const list = kind ? [state.lines[kind]] : Object.values(state.lines);
+  list.forEach(arr => {
+    arr.forEach(l => { try { state.series.removePriceLine(l); } catch (e) {} });
+    arr.length = 0;
+  });
 }
-function line(price, { color = "#7c8694", title = "", style = 2, width = 1 } = {}) {
+function line(kind, price, { color = "#7c8694", title = "", style = 2, width = 1 } = {}) {
   if (price === null || price === undefined || isNaN(price)) return;
-  state.priceLines.push(state.series.createPriceLine({
+  state.lines[kind].push(state.series.createPriceLine({
     price, color, lineWidth: width, lineStyle: style,
     axisLabelVisible: true, title,
   }));
 }
-function applyOverlays(snap, tf) {
+const DASH = 2, DOT = 3, SOLID = 0;
+
+function drawOverlays() {
+  const snap = state.snap;
   clearLines();
-  if (!snap) { setMarkers([]); return; }
-  const entryTf = (snap.tf_entry || "").toUpperCase();
-  const isEntry = !tf || tf.toUpperCase() === entryTf;
+  if (!snap) { state.markersApi.setMarkers([]); return; }
   const o = snap.overlays || {};
+
+  // zona S/D utama + order blocks (toggle OB)
   if (state.toggles.OB) {
-    if (o.supply) { line(o.supply[0], { color: "#ea3943", title: "SUPPLY", style: 2 }); line(o.supply[1], { color: "#ea3943", title: "ENTRY SELL", style: 2 }); }
-    if (o.demand) { line(o.demand[0], { color: "#16c784", title: "ENTRY BUY", style: 2 }); line(o.demand[1], { color: "#16c784", title: "SUPPORT", style: 2 }); }
+    if (o.supply) { line("OB", o.supply[0], { color: "#ea3943", title: "SUPPLY", style: DASH }); line("OB", o.supply[1], { color: "#ea3943", title: "ENTRY SELL", style: DASH }); }
+    if (o.demand) { line("OB", o.demand[0], { color: "#16c784", title: "ENTRY BUY", style: DASH }); line("OB", o.demand[1], { color: "#16c784", title: "SUPPORT", style: DASH }); }
+    (snap.order_blocks || []).forEach((b, i) => {
+      const col = b.kind === "bull" ? "#f59e0b" : "#a78bfa";
+      line("OB", b.top, { color: col, title: `OB${b.kind === "bull" ? "↑" : "↓"}${i + 1}`, style: DASH, width: 1 });
+      line("OB", b.bottom, { color: col, title: `OB${b.kind === "bull" ? "↑" : "↓"}${i + 1}`, style: DASH, width: 1 });
+    });
   }
-  line(o.eq, { color: "#d9b64a", title: "EQ", style: 0, width: 1 });
+  // Fair Value Gaps (toggle FVG)
   if (state.toggles.FVG) {
-    line(o.gp, { color: "#2dd4bf", title: "Fib 0.618 (GP)", style: 2 });
-    line(o.ote, { color: "#2dd4bf", title: "Fib 0.786 (OTE)", style: 2 });
+    (snap.fvg || []).forEach((g, i) => {
+      const col = g.kind === "bull" ? "#2dd4bf" : "#f472b6";
+      line("FVG", g.top, { color: col, title: `FVG${g.kind === "bull" ? "↑" : "↓"}${i + 1}`, style: DOT });
+      line("FVG", g.bottom, { color: col, title: `FVG${g.kind === "bull" ? "↑" : "↓"}${i + 1}`, style: DOT });
+    });
   }
+  // level multi S1-S3 / D1-D3 (toggle LIMIT)
+  if (state.toggles.LIMIT && snap.zones_multi) {
+    snap.zones_multi.supply.forEach(z => {
+      line("LIMIT", z.top, { color: "rgba(234,57,67,.55)", title: z.level, style: DOT });
+      line("LIMIT", z.bottom, { color: "rgba(234,57,67,.55)", title: z.level, style: DOT });
+    });
+    snap.zones_multi.demand.forEach(z => {
+      line("LIMIT", z.top, { color: "rgba(22,199,132,.55)", title: z.level, style: DOT });
+      line("LIMIT", z.bottom, { color: "rgba(22,199,132,.55)", title: z.level, style: DOT });
+    });
+  }
+  // garis konfluensi tetap
+  line("BASE", o.eq, { color: "#d9b64a", title: "EQ", style: SOLID, width: 1 });
+  line("BASE", o.gp, { color: "#2dd4bf", title: "Fib 0.618 (GP)", style: DASH });
+  line("BASE", o.ote, { color: "#2dd4bf", title: "Fib 0.786 (OTE)", style: DASH });
+  // setup RR (toggle RR)
   const su = snap.setup;
-  if (su && isEntry && state.toggles.RR) {
-    line(su.entry, { color: "#e6e9ee", title: "Entry", style: 0, width: 2 });
-    line(su.sl, { color: "#ea3943", title: "SL", style: 0, width: 1 });
-    line(su.tp1, { color: "#16c784", title: "TP 1", style: 2 });
-    line(su.tp2, { color: "#16c784", title: "TP 2", style: 2 });
+  const isEngineTf = !state.engineTf || state.activeTf === state.engineTf;
+  if (su && isEngineTf && state.toggles.RR) {
+    line("RR", su.entry, { color: "#e6e9ee", title: "Entry", style: SOLID, width: 2 });
+    line("RR", su.sl, { color: "#ea3943", title: "SL", style: SOLID, width: 1 });
+    line("RR", su.tp1, { color: "#16c784", title: "TP 1", style: DASH });
+    line("RR", su.tp2, { color: "#16c784", title: "TP 2", style: DASH });
   }
-  /* markers: CHoCH + sinyal */
+  // forecast (chip)
+  if (state.toggles.FORECAST && snap.forecast && snap.forecast.direction !== "NEUTRAL") {
+    const fc = snap.forecast;
+    line("FORECAST", fc.sl, { color: "#ea3943", title: "FC SL", style: DOT });
+    line("FORECAST", fc.tp1, { color: "#8b93a1", title: "FC TP1", style: DOT });
+    line("FORECAST", fc.tp2, { color: "#8b93a1", title: "FC TP2", style: DOT });
+    line("FORECAST", fc.tp3, { color: "#8b93a1", title: "FC TP3", style: DOT });
+  }
+  /* markers: CHoCH + sinyal (hanya di TF engine) */
   const markers = [];
-  (snap.events || []).forEach(ev => {
-    if (ev.tag !== "CHoCH") return;
-    const t = new Date(ev.time).getTime() / 1000;
-    markers.push({
-      time: t, position: ev.dir === "UP" ? "belowBar" : "aboveBar",
-      color: ev.dir === "UP" ? "#16c784" : "#ea3943",
-      shape: ev.dir === "UP" ? "arrowUp" : "arrowDown", text: "CHoCH",
+  if (isEngineTf) {
+    (snap.events || []).forEach(ev => {
+      if (ev.tag !== "CHOCH") return;
+      const t = new Date(ev.time).getTime() / 1000;
+      markers.push({
+        time: t, position: ev.dir === "UP" ? "belowBar" : "aboveBar",
+        color: ev.dir === "UP" ? "#16c784" : "#ea3943",
+        shape: ev.dir === "UP" ? "arrowUp" : "arrowDown", text: "CHoCH",
+      });
     });
-  });
-  (snap.signals_log || []).forEach(s => {
-    const t = new Date(s.time).getTime() / 1000;
-    markers.push({
-      time: t, position: s.side === "LONG" ? "belowBar" : "aboveBar",
-      color: s.side === "LONG" ? "#d9b64a" : "#d9b64a",
-      shape: s.side === "LONG" ? "arrowUp" : "arrowDown",
-      text: `${s.side} ${fmt(s.entry)}`,
+    (snap.signals_log || []).forEach(s => {
+      const t = new Date(s.time).getTime() / 1000;
+      markers.push({
+        time: t, position: s.side === "LONG" ? "belowBar" : "aboveBar",
+        color: "#d9b64a",
+        shape: s.side === "LONG" ? "arrowUp" : "arrowDown",
+        text: `${s.side} ${fmt(s.entry)}`,
+      });
     });
-  });
+  }
   markers.sort((a, b) => a.time - b.time);
-  setMarkers(isEntry ? markers : []);
+  state.markersApi.setMarkers(markers);
 }
 
-/* v5: marker lewat helper createSeriesMarkers (bukan series.setMarkers) */
-function setMarkers(markers) {
-  if (!state.markersApi) {
-    state.markersApi = LightweightCharts.createSeriesMarkers(state.series, []);
+/* ============================== ALERT (ALARM/SND/NOTIF) ============================== */
+function beep() {
+  try {
+    state.audioCtx = state.audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = state.audioCtx;
+    [0, 0.25].forEach(t => {
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = 880; osc.type = "sine";
+      gain.gain.setValueAtTime(0.25, ctx.currentTime + t);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.2);
+      osc.start(ctx.currentTime + t); osc.stop(ctx.currentTime + t + 0.2);
+    });
+  } catch (e) {}
+}
+function speak(text) {
+  try {
+    if (!("speechSynthesis" in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "id-ID"; u.rate = 1.05;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+function notify(title, body) {
+  try {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    new Notification(title, { body });
+  } catch (e) {}
+}
+
+function detectAlerts(snap) {
+  if (!snap) return;
+  const log = snap.signals_log || [];
+  const key = log.length ? log[0].time : null;
+  const newSignal = key && key !== state.lastSigKey ? log[0] : null;
+  if (state.lastSigKey !== null && newSignal) {
+    const txt = `Sinyal ${newSignal.side} ${snap.symbol} ${newSignal.tf} di ${fmt(newSignal.entry)}, SL ${fmt(newSignal.sl)}, TP satu ${fmt(newSignal.tp1)}`;
+    if (state.toggles.ALARM) beep();
+    if (state.toggles.SND) speak(`New ${newSignal.side} signal. ${newSignal.side === "LONG" ? "Buy" : "Sell"} at ${fmt(newSignal.entry)}. Secure your profit at target.`);
+    if (state.toggles.NOTIF) notify(`⚡ ${newSignal.side} ${snap.symbol} ${newSignal.tf}`, txt);
   }
-  state.markersApi.setMarkers(markers);
+  if (key) state.lastSigKey = key;
+
+  const st2 = snap.two_stage;
+  if (st2 && st2.stage !== state.lastStage) {
+    if (state.lastStage !== -1) {
+      if (st2.stage === 2 && state.toggles.SND) speak(`${st2.label}. ${st2.detail}.`);
+      if (st2.stage === 1 && state.toggles.SND) speak(`Get ready. ${st2.detail}.`);
+      if (st2.stage === 2 && state.toggles.ALARM) beep();
+      if (st2.stage === 2 && state.toggles.NOTIF) notify(`⚡ ${st2.label}`, st2.detail);
+    }
+    state.lastStage = st2.stage;
+  }
 }
 
 /* ============================== PANELS ============================== */
 function heatClass(v) {
-  v = cls(v);
+  v = String(v || "").toUpperCase();
   if (["BULL", "BUY", "CH-BULL", "DEMAND"].includes(v)) return "v-chip bull";
   if (["BEAR", "SELL", "CH-BEAR", "SUPPLY"].includes(v)) return "v-chip bear";
   if (["EXP", "RANG", "RANGING"].includes(v)) return "v-chip gold";
@@ -131,10 +241,11 @@ function heatClass(v) {
 function renderSnapshot(snap) {
   if (!snap) return;
   state.snap = snap;
+  if (snap.engine_entry) state.engineTf = snap.engine_entry;
   const st = snap.stats;
 
   $("st-price").textContent = fmt(st.price);
-  $("st-symbol").textContent = `${snap.symbol} Live${snap.demo ? " — DEMO" : ""}`;
+  $("st-symbol").textContent = `${snap.symbol} Live${snap.demo ? " — DEMO" : ""}${snap.view_only ? ` (${snap.tf_entry.toUpperCase()} view)` : ""}`;
   $("st-rsi").textContent = fmt(st.rsi, 1);
   $("st-rsi-sub").textContent = st.rsi_label;
   $("st-atr").textContent = fmt(st.atr);
@@ -162,7 +273,7 @@ function renderSnapshot(snap) {
   $("gauge-fg").style.strokeDashoffset = 214 - 214 * (cf.confidence / 100);
   $("conf-high").textContent = cf.confidence >= 75 ? "HIGH" : cf.confidence >= 50 ? "MEDIUM" : "LOW";
   $("conf-action").textContent = cf.action;
-  $("conf-checks").innerHTML = cf.checks.map(ch => `
+  $("conf-checks").innerHTML = (cf.checks || []).map(ch => `
     <div class="conf-row ${ch.ok ? "ok" : "no"}">
       <span class="dim-text">${ch.label}</span>
       <span class="val">${ch.val}</span>
@@ -242,6 +353,16 @@ function renderSnapshot(snap) {
   const bias = trendCols[trendCols.length - 1];
   $("hm-bias").textContent = bias === "BEAR" ? "MONITORING - BEAR BIAS" : bias === "BULL" ? "MONITORING - BULL BIAS" : "MONITORING";
 
+  /* forecast chip */
+  const fc = snap.forecast;
+  const fcChip = $("forecast-chip");
+  fcChip.classList.remove("bull", "bear");
+  if (fc) {
+    fcChip.textContent = `FORECAST: ${fc.direction}`;
+    if (fc.direction === "BULLISH") fcChip.classList.add("bull");
+    if (fc.direction === "BEARISH") fcChip.classList.add("bear");
+  }
+
   /* setup card */
   const sc = document.querySelector(".setup-card");
   $("su-label").textContent = su && su.label ? `SETUP: ${su.label}` : (snap.setup_label ? `KANDIDAT: ${snap.setup_label}` : "");
@@ -275,7 +396,40 @@ function renderSnapshot(snap) {
     b.classList.toggle("disabled", !hm.tfs.map(t => t.toLowerCase()).includes(b.dataset.tf));
   });
 
-  applyOverlays(snap, state.activeTf);
+  updateRiskCalc();
+  drawOverlays();
+  detectAlerts(snap);
+}
+
+/* ============================== RISK CALCULATOR ============================== */
+function updateRiskCalc() {
+  const bal = parseFloat($("rc-balance").value) || 0;
+  const risk = parseFloat($("rc-risk").value) || 0;
+  const kurs = parseFloat($("rc-kurs").value) || 1;
+  const cs = parseFloat($("rc-contract").value) || 1;
+  const riskUSD = (bal / kurs) * (risk / 100);
+  $("rc-maxloss").textContent = `Rp ${Math.round(risk * bal / 100).toLocaleString("id-ID")}`;
+  const su = state.snap && state.snap.setup;
+  if (su) {
+    const slDist = Math.abs(su.entry - su.sl);
+    const lot = slDist > 0 ? riskUSD / (slDist * cs) : 0;
+    $("rc-lot").textContent = lot.toFixed(3);
+  } else {
+    $("rc-lot").textContent = "--";
+  }
+}
+
+/* ============================== JOURNAL ============================== */
+function loadJournal() {
+  try { return JSON.parse(localStorage.getItem("at-journal") || '{"wins":0,"losses":0}'); }
+  catch (e) { return { wins: 0, losses: 0 }; }
+}
+function saveJournal(j) { localStorage.setItem("at-journal", JSON.stringify(j)); renderJournal(j); }
+function renderJournal(j) {
+  $("jr-wins").textContent = j.wins;
+  $("jr-losses").textContent = j.losses;
+  const tot = j.wins + j.losses;
+  $("jr-winrate").textContent = tot ? Math.round(j.wins / tot * 100) + "%" : "0%";
 }
 
 /* ============================== WS ============================== */
@@ -291,11 +445,13 @@ async function connectWS() {
     state.ws.onmessage = (m) => {
       const msg = JSON.parse(m.data);
       if (msg.type === "hello" && msg.snapshot) renderSnapshot(msg.snapshot);
-      if (msg.type === "snapshot") renderSnapshot(msg.data);
+      if (msg.type === "snapshot" && !state.activeTf) renderSnapshot(msg.data);
+      else if (msg.type === "snapshot" && state.snap && msg.data && msg.data.tf_entry === state.snap.tf_entry) renderSnapshot(msg.data);
       if (msg.type === "candle" && msg.tf === state.activeTf) {
         const c = msg.candle;
         state.candles.push(c);
         state.series.update({ time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4] });
+        updateCvdSeries();
       }
     };
     state.ws.onclose = () => {
@@ -309,16 +465,37 @@ async function connectWS() {
   }
 }
 
+/* ============================== TF SWITCH ============================== */
+async function switchTf(tf) {
+  const ok = await loadCandles(tf);
+  if (!ok) return;
+  try {
+    const snap = await (await fetch(`/api/snapshot?tf=${tf}`)).json();
+    if (!snap.error) {
+      renderSnapshot(snap);          // panel + overlay khusus TF ini
+      return;
+    }
+  } catch (e) {}
+  drawOverlays();                    // fallback: overlay dari snapshot cache
+}
+
 /* ============================== EVENTS UI ============================== */
+function readTogglesFromDom() {
+  document.querySelectorAll(".toggle").forEach(b => {
+    state.toggles[b.dataset.toggle] = b.classList.contains("on");
+  });
+}
+
 function bindUI() {
+  readTogglesFromDom();
   document.querySelectorAll(".tf-btn").forEach(b => b.addEventListener("click", () => {
     if (b.classList.contains("disabled")) return;
-    loadCandles(b.dataset.tf);
+    switchTf(b.dataset.tf);
   }));
   document.querySelectorAll(".bars-btn").forEach(b => b.addEventListener("click", () => {
     document.querySelectorAll(".bars-btn").forEach(x => x.classList.remove("on"));
     b.classList.add("on");
-    barCount = parseInt(b.dataset.bars, 10);
+    state.barCount = parseInt(b.dataset.bars, 10);
     fitBars();
   }));
   document.querySelectorAll(".toggle").forEach(b => b.addEventListener("click", () => {
@@ -326,42 +503,78 @@ function bindUI() {
     const name = b.dataset.toggle;
     state.toggles[name] = b.classList.contains("on");
     b.textContent = b.textContent.replace(/(ON|OFF)$/, state.toggles[name] ? "ON" : "OFF");
-    applyOverlays(state.snap, state.activeTf);
+    if (name === "CVD") updateCvdSeries();
+    if (name === "NOTIF" && state.toggles.NOTIF && "Notification" in window
+        && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+    if (name === "SND" && state.toggles.SND) speak("Sound aktif");
+    drawOverlays();
   }));
   $("btn-sync").addEventListener("click", async () => {
-    const snap = await (await fetch("/api/snapshot")).json();
-    renderSnapshot(snap);
-    if (state.activeTf) loadCandles(state.activeTf);
+    await switchTf(state.activeTf || (state.snap && state.snap.tf_entry));
   });
   $("btn-clear-log").addEventListener("click", () => {
     $("log-list").innerHTML = `<div class="dim-text">— Waiting for signals…</div>`;
   });
   $("mts-offset").addEventListener("input", () => $("mts-val").textContent = Number($("mts-offset").value || 0).toFixed(2));
-  setInterval(() => {
-    const now = new Date();
-    $("sync-time").textContent = now.toTimeString().slice(0, 8);
-  }, 1000);
+  $("forecast-chip").addEventListener("click", () => {
+    state.toggles.FORECAST = !state.toggles.FORECAST;
+    $("forecast-chip").classList.toggle("on", state.toggles.FORECAST);
+    drawOverlays();
+  });
+
+  /* risk calculator live */
+  ["rc-balance", "rc-risk", "rc-kurs", "rc-contract"].forEach(id =>
+    $(id).addEventListener("input", updateRiskCalc));
+
+  /* journal */
+  renderJournal(loadJournal());
+  $("jr-win").addEventListener("click", () => { const j = loadJournal(); j.wins++; saveJournal(j); });
+  $("jr-loss").addEventListener("click", () => { const j = loadJournal(); j.losses++; saveJournal(j); });
+  $("jr-reset").addEventListener("click", () => saveJournal({ wins: 0, losses: 0 }));
+
+  /* selector mode -> backend */
+  const postSettings = () => {
+    fetch("/api/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sensitivity: $("sel-sensitivity").value, exit_protocol: $("sel-exit").value }),
+    }).then(r => r.json()).then(j => console.log("settings", j)).catch(() => {});
+  };
+  $("sel-sensitivity").addEventListener("change", postSettings);
+  $("sel-exit").addEventListener("change", postSettings);
+
+  setInterval(() => { $("sync-time").textContent = new Date().toTimeString().slice(0, 8); }, 1000);
+}
+
+async function restoreMode() {
+  try {
+    const h = await (await fetch("/api/health")).json();
+    if (h.sensitivity) $("sel-sensitivity").value = h.sensitivity;
+    if (h.exit_protocol) $("sel-exit").value = h.exit_protocol;
+  } catch (e) {}
 }
 
 /* ============================== BOOT ============================== */
 async function boot() {
   initChart();
   bindUI();
+  restoreMode();
   try {
     const snap = await (await fetch("/api/snapshot")).json();
     if (!snap.error) {
       renderSnapshot(snap);
       const tf = snap.tf_entry || "15m";
-      await loadCandles(tf);
+      await switchTf(tf);
     }
-  } catch (e) {
-    console.warn("snapshot awal gagal:", e);
-  }
+  } catch (e) { console.warn("snapshot awal gagal:", e); }
   connectWS();
-  /* fallback polling kalau WS mati */
   setInterval(async () => {
     if (state.ws && state.ws.readyState === 1) return;
-    try { renderSnapshot(await (await fetch("/api/snapshot")).json()); } catch (e) {}
+    try {
+      const q = state.activeTf ? `?tf=${state.activeTf}` : "";
+      renderSnapshot(await (await fetch("/api/snapshot" + q)).json());
+    } catch (e) {}
   }, 15000);
 }
 boot();
