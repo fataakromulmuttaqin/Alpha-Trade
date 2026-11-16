@@ -93,7 +93,10 @@
         <span class="chip chip-green" id="chart-structure">--</span>
       </div>
     </div>
-    <div id="chart"></div>
+    <div id="chart-wrap">
+      <div id="chart"></div>
+      <canvas id="overlay"></canvas>
+    </div>
   </section>
 
   <!-- ---- right rail ---- -->
@@ -195,7 +198,7 @@
     <div class="card heatmap-card">
       <div class="card-head"><div class="card-title">MTF CONFLUENCE HEATMAP</div><span class="chip chip-green" id="hm-bias">MONITORING</span></div>
       <table class="hm-table" id="hm-table">
-        <thead><tr><th>INDICATOR</th><th id="hm-tf0">--</th><th id="hm-tf1">--</th><th id="hm-tf2">--</th><th id="hm-tf3">--</th></tr></thead>
+        <thead><tr id="hm-head-row"><th>INDICATOR</th></tr></thead>
         <tbody id="hm-body"></tbody>
       </table>
     </div>

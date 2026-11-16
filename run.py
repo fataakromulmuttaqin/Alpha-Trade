@@ -51,7 +51,8 @@ class AppState:
         if hit and (time.time() - hit[0]) < 5:
             return hit[1]
         snap = build_snapshot(dict(self.buffers), self.cfg, self.signals_log,
-                              symbol=self.label, view_tf=view_tf)
+                              symbol=self.label, view_tf=view_tf,
+                              htf_tf=(self.htf if view_tf == self.entry_tf else None))
         if snap:
             snap["demo"] = self.demo
             snap["exec_mode"] = self.executor.mode
@@ -103,6 +104,14 @@ class AppState:
     async def on_candle(self, interval, buf, demo=False):
         self.buffers[interval] = buf
         if interval != self.entry_tf:
+            if self.server:                               # candle TF tampilan saja
+                last = buf.iloc[-1]
+                self.server.broadcast_threadsafe({
+                    "type": "candle", "tf": interval,
+                    "candle": [int(buf.index[-1].timestamp() * 1000),
+                               float(last["open"]), float(last["high"]),
+                               float(last["low"]), float(last["close"]),
+                               float(last["volume"])]})
             return
         htf_buf = self.buffers.get(self.htf)
         if len(buf) < 260 or htf_buf is None or len(htf_buf) < 210:
@@ -111,8 +120,9 @@ class AppState:
         async with self.lock:
             sig = generate_signals(buf, self.cfg, htf_df=htf_buf)
             self._handle_new_signals(sig)
-            snap = build_snapshot({self.entry_tf: buf, self.htf: htf_buf},
-                                  self.cfg, self.signals_log, symbol=self.label)
+            snap = build_snapshot(dict(self.buffers), self.cfg, self.signals_log,
+                                  symbol=self.label, view_tf=self.entry_tf,
+                                  htf_tf=self.htf)
             if snap:
                 snap["demo"] = demo
                 snap["exec_mode"] = self.executor.mode
@@ -153,13 +163,18 @@ class AppState:
 
 
 # ----------------------------- Demo feed ------------------------------------
-class DemoFeed:
-    """Feed sintetis untuk uji dashboard tanpa internet:
-    random-walk + clustering volatilitas + trend regime, candle 5m dipercepat."""
+DEMO_TFS = ("1m", "5m", "15m", "30m", "1h", "4h")
+LIVE_TFS = ("1m", "5m", "15m", "30m", "1h", "4h")
+DEMO_SEED = {"1m": 900, "5m": 900, "15m": 520, "30m": 460, "1h": 420, "4h": 420}
 
-    def __init__(self, entry_tf="5m", htf="4h", n_seed=800, tick_sec=1.5):
-        self.entry_tf, self.htf = entry_tf, htf
-        self.n_seed = n_seed
+
+class DemoFeed:
+    """Feed sintetis untuk uji dashboard tanpa internet: random-walk + clustering
+    volatilitas. Semua TF DEMO_TFS dibuat native (bukan resample) dan dipercepat."""
+
+    def __init__(self, entry_tf="5m", tfs=DEMO_TFS, tick_sec=1.5):
+        self.entry_tf = entry_tf
+        self.tfs = tuple(tfs)
         self.tick_sec = tick_sec
         self.price = 3850.0
 
@@ -177,38 +192,34 @@ class DemoFeed:
                              "close": [c], "volume": [v], "close_time": [t + step_ms - 1]},
                             idx)
 
-    def _seed(self, tf="5m", n=None):
+    def _seed(self, tf, n):
         step = INTERVAL_MS[tf]
-        n = n or self.n_seed
         t0 = int(time.time() * 1000) - n * step
-        rows = [self._candle(t0 + i * step, step) for i in range(n)]
-        return pd.concat(rows)
+        return pd.concat([self._candle(t0 + i * step, step) for i in range(n)])
 
     async def run(self, state):
-        step = INTERVAL_MS[self.entry_tf]
-        hstep = INTERVAL_MS[self.htf]
-        # histori 4h dulu (cukup panjang utk EMA200), lalu TF entry meneruskannya
-        htf_buf = self._seed(self.htf, n=420)
-        self.price = float(htf_buf["close"].iloc[-1])
-        buf = self._seed(self.entry_tf)
-        print(f"[demo] seed {len(buf)} candle {self.entry_tf} + {len(htf_buf)} candle {self.htf}",
+        bufs, last_t = {}, {}
+        for tf in self.tfs:
+            bufs[tf] = self._seed(tf, DEMO_SEED.get(tf, 500))
+            last_t[tf] = int(bufs[tf].index[-1].timestamp() * 1000)
+            await state.on_candle(tf, bufs[tf], demo=True)
+        print("[demo] seed " + ", ".join(f"{tf}:{len(bufs[tf])}" for tf in self.tfs),
               flush=True)
-        await state.on_candle(self.entry_tf, buf, demo=True)
-        await state.on_candle(self.htf, htf_buf, demo=True)
-        t = int(time.time() * 1000)
-        t_htf = int(htf_buf.index[-1].timestamp() * 1000) + hstep
-        htf_every = max(1, hstep // step)                 # 1 candle HTF per N candle entry
-        i = 0
+        step = INTERVAL_MS[self.entry_tf]
+        t = max(last_t.values())
         while True:
             await asyncio.sleep(self.tick_sec)
             t += step
-            i += 1
-            buf = pd.concat([buf, self._candle(t, step)]).iloc[-1500:]
-            if i % htf_every == 0:                        # candle 4h baru (closed)
-                htf_buf = pd.concat([htf_buf, self._candle(t_htf, hstep)]).iloc[-1500:]
-                t_htf += hstep
-                await state.on_candle(self.htf, htf_buf, demo=True)
-            await state.on_candle(self.entry_tf, buf, demo=True)
+            for tf in self.tfs:
+                s = INTERVAL_MS[tf]
+                if tf == self.entry_tf:
+                    bufs[tf] = pd.concat([bufs[tf], self._candle(t, s)]).iloc[-1500:]
+                    await state.on_candle(tf, bufs[tf], demo=True)
+                    continue
+                while last_t[tf] + s <= t:                # candle TF ini sudah "close"
+                    last_t[tf] += s
+                    bufs[tf] = pd.concat([bufs[tf], self._candle(last_t[tf], s)]).iloc[-1500:]
+                    await state.on_candle(tf, bufs[tf], demo=True)
 
 
 # ----------------------------- Main ------------------------------------------
@@ -236,13 +247,16 @@ async def main():
     if args.demo:
         state.entry_tf, state.htf = "5m", "4h"
         state.demo = True
-        print(f"[run] mode DEMO — {state.label} (sintetis) | exec={executor.mode}", flush=True)
-        feed = DemoFeed(entry_tf="5m", htf="4h")
+        print(f"[run] mode DEMO — {state.label} (sintetis) | TF: {', '.join(DEMO_TFS)} | "
+              f"exec={executor.mode}", flush=True)
+        feed = DemoFeed(entry_tf="5m", tfs=DEMO_TFS)
     else:
         state.entry_tf, state.htf = args.entry_tf, args.htf
+        tfs = list(dict.fromkeys(LIVE_TFS + (args.entry_tf, args.htf)))
         print(f"[run] {state.label} ({args.symbol}) entry={args.entry_tf} "
-              f"htf={args.htf} market={args.market} exec={executor.mode}", flush=True)
-        mf = MultiFeed(symbol=args.symbol, intervals=(args.entry_tf, args.htf),
+              f"htf={args.htf} TF={','.join(tfs)} market={args.market} "
+              f"exec={executor.mode}", flush=True)
+        mf = MultiFeed(symbol=args.symbol, intervals=tfs,
                        market=args.market, cfg=cfg, buffer_bars=args.bars,
                        signal_tf=args.entry_tf,
                        on_signal=lambda txt: print(txt, flush=True),

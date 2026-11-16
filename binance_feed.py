@@ -113,13 +113,14 @@ def telegram_notifier(token=None, chat_id=None):
 class LiveFeed:
     def __init__(self, symbol="PAXGUSDT", interval="15m", market="spot",
                  cfg=None, buffer_bars=1500, on_signal=None, cache_csv=None,
-                 on_candle=None, quiet=False):
+                 on_candle=None, quiet=False, evaluate=True):
         self.symbol, self.interval, self.market = symbol.upper(), interval, market
         self.cfg = cfg or Config()
         self.buffer_bars = buffer_bars
         self.on_signal = on_signal or telegram_notifier()
         self.on_candle = on_candle            # fn(interval, buf) tiap candle close
         self.quiet = quiet
+        self.evaluate = evaluate              # False = hanya isi buffer (TF tampilan)
         self.cache_csv = cache_csv
         self.step = INTERVAL_MS[interval]
         self.buf = pd.DataFrame()
@@ -165,6 +166,8 @@ class LiveFeed:
         self._evaluate()
 
     def _evaluate(self):
+        if not self.evaluate:
+            return
         if len(self.buf) < max(self.cfg.vp_lookback, 250) + 10:
             return
         sig = generate_signals(self.buf, self.cfg)
@@ -227,16 +230,13 @@ class MultiFeed:
                 symbol=symbol, interval=tf, market=market, cfg=cfg,
                 buffer_bars=buffer_bars,
                 on_signal=(on_signal or telegram_notifier()) if is_entry else self._noop_signal,
-                on_candle=self._dispatch if is_entry else self._track,
-                quiet=not is_entry, cache_csv=cache_csv)
+                on_candle=self._dispatch,
+                quiet=not is_entry, cache_csv=cache_csv,
+                evaluate=is_entry)                # TF tampilan: tanpa evaluasi engine
 
     @staticmethod
     def _noop_signal(*a, **k):
         pass
-
-    def _track(self, interval, buf):
-        """Buffer TF non-entry ikut tersimpan tanpa memicu evaluasi engine."""
-        self.buffers[interval] = buf
 
     def _dispatch(self, interval, buf):
         self.buffers[interval] = buf

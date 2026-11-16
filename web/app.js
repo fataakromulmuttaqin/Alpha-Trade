@@ -38,6 +38,7 @@ function initChart() {
   });
   state.chart.priceScale("cvd").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
   state.markersApi = LightweightCharts.createSeriesMarkers(state.series, []);
+  setupCanvas();
 }
 
 async function loadCandles(tf) {
@@ -94,13 +95,11 @@ const DASH = 2, DOT = 3, SOLID = 0;
 function drawOverlays() {
   const snap = state.snap;
   clearLines();
-  if (!snap) { state.markersApi.setMarkers([]); return; }
+  if (!snap) { state.markersApi.setMarkers([]); drawCanvas(); return; }
   const o = snap.overlays || {};
 
-  // zona S/D utama + order blocks (toggle OB)
+  // Order Blocks (toggle OB)
   if (state.toggles.OB) {
-    if (o.supply) { line("OB", o.supply[0], { color: "#ea3943", title: "SUPPLY", style: DASH }); line("OB", o.supply[1], { color: "#ea3943", title: "ENTRY SELL", style: DASH }); }
-    if (o.demand) { line("OB", o.demand[0], { color: "#16c784", title: "ENTRY BUY", style: DASH }); line("OB", o.demand[1], { color: "#16c784", title: "SUPPORT", style: DASH }); }
     (snap.order_blocks || []).forEach((b, i) => {
       const col = b.kind === "bull" ? "#f59e0b" : "#a78bfa";
       line("OB", b.top, { color: col, title: `OB${b.kind === "bull" ? "↑" : "↓"}${i + 1}`, style: DASH, width: 1 });
@@ -126,10 +125,11 @@ function drawOverlays() {
       line("LIMIT", z.bottom, { color: "rgba(22,199,132,.55)", title: z.level, style: DOT });
     });
   }
-  // garis konfluensi tetap
-  line("BASE", o.eq, { color: "#d9b64a", title: "EQ", style: SOLID, width: 1 });
-  line("BASE", o.gp, { color: "#2dd4bf", title: "Fib 0.618 (GP)", style: DASH });
-  line("BASE", o.ote, { color: "#2dd4bf", title: "Fib 0.786 (OTE)", style: DASH });
+  // fib konfluensi tetap (label di-axis matikan — digambar di canvas ala GODMODE)
+  line("BASE", o.eq, { color: "#d9b64a", title: "", style: SOLID, width: 1 });
+  line("BASE", o.gp, { color: "rgba(217,182,74,.7)", title: "", style: DOT });
+  line("BASE", o.ote, { color: "rgba(217,182,74,.7)", title: "", style: DOT });
+
   // setup RR (toggle RR)
   const su = snap.setup;
   const isEngineTf = !state.engineTf || state.activeTf === state.engineTf;
@@ -147,54 +147,142 @@ function drawOverlays() {
     line("FORECAST", fc.tp2, { color: "#8b93a1", title: "FC TP2", style: DOT });
     line("FORECAST", fc.tp3, { color: "#8b93a1", title: "FC TP3", style: DOT });
   }
-  /* markers: CHoCH + sinyal (hanya di TF engine) */
+  /* garis CHoCH: Minor (lama) + Major (terbaru) */
+  const chochEvents = (snap.events || []).filter(e => e.tag === "CHOCH");
+  chochEvents.forEach((ev, i) => {
+    const isMajor = i === chochEvents.length - 1;
+    line("BASE", ev.price, { color: isMajor ? "rgba(234,57,67,.9)" : "rgba(234,57,67,.55)",
+      title: "", style: DASH, width: isMajor ? 2 : 1 });
+  });
+  /* markers: sinyal saja (CHoCH sudah sebagai garis) */
   const markers = [];
   if (isEngineTf) {
-    (snap.events || []).forEach(ev => {
-      if (ev.tag !== "CHOCH") return;
-      const t = new Date(ev.time).getTime() / 1000;
-      markers.push({
-        time: t, position: ev.dir === "UP" ? "belowBar" : "aboveBar",
-        color: ev.dir === "UP" ? "#16c784" : "#ea3943",
-        shape: ev.dir === "UP" ? "arrowUp" : "arrowDown", text: "CHoCH",
-      });
-    });
     (snap.signals_log || []).forEach(s => {
       const t = new Date(s.time).getTime() / 1000;
       markers.push({
         time: t, position: s.side === "LONG" ? "belowBar" : "aboveBar",
         color: "#d9b64a",
         shape: s.side === "LONG" ? "arrowUp" : "arrowDown",
-        text: `${s.side} ${fmt(s.entry)}`,
+        text: `${s.side === "LONG" ? "BUY" : "SELL"}`,
       });
     });
   }
   markers.sort((a, b) => a.time - b.time);
   state.markersApi.setMarkers(markers);
+  drawCanvas();
+}
+
+/* ---------- canvas overlay ala GODMODE: band zona + kotak nilai + label ---------- */
+function setupCanvas() {
+  const wrap = $("chart-wrap"), cv = $("overlay");
+  if (!wrap || !cv) return;
+  const sync = () => {
+    if (cv.width !== wrap.clientWidth || cv.height !== wrap.clientHeight) {
+      cv.width = wrap.clientWidth; cv.height = wrap.clientHeight;
+    }
+    drawCanvas();
+  };
+  new ResizeObserver(sync).observe(wrap);
+  if (state.chart) state.chart.timeScale().subscribeVisibleLogicalRangeChange(() => drawCanvas());
+}
+
+function drawCanvas() {
+  const cv = $("overlay");
+  const snap = state.snap;
+  if (!cv || !snap) return;
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  const s = state.series, ts = state.chart.timeScale();
+  if (!s || !ts) return;
+  const y = (p) => s.priceToCoordinate(p);
+  const x = (tSec) => ts.timeToCoordinate(tSec);
+  const timeSec = (iso) => Math.floor(new Date(String(iso).replace(" ", "T")).getTime() / 1000);
+
+  /* band zona S/D (selalu tampil — identitas chart) */
+  const zm = snap.zones_multi;
+  if (zm) {
+    ctx.font = "10px 'Segoe UI', sans-serif";
+    const drawBand = (z, isSupply) => {
+      const yT = y(z.top), yB = y(z.bottom);
+      if (yT === null || yB === null) return;
+      const x0Raw = x(timeSec(z.time));
+      const x0 = (x0Raw === null || x0Raw < 0) ? 0 : x0Raw;   // asal di luar layar -> dari tepi kiri
+      const col = isSupply ? "234,57,67" : "22,199,132";
+      ctx.fillStyle = `rgba(${col},0.09)`;
+      ctx.fillRect(x0, yT, W - x0, yB - yT);
+      ctx.fillStyle = `rgba(${col},0.4)`;
+      ctx.fillRect(x0, yT - 1, W - x0, 1);
+      ctx.fillRect(x0, yB, W - x0, 1);
+      ctx.fillStyle = `rgb(${col})`;
+      const nama = isSupply ? "Supply" : "Demand";
+      const tag = z.level.replace(/^[SD]/, "Z");
+      ctx.fillText(`${nama} ${tag}  ${fmt(z.bottom)} – ${fmt(z.top)}`, x0 + 6, (yT + yB) / 2 + 3);
+    };
+    zm.supply.forEach(z => drawBand(z, true));
+    zm.demand.forEach(z => drawBand(z, false));
+  }
+
+  /* label CHoCH pada garisnya (Minor / Major) */
+  const choch = (snap.events || []).filter(e => e.tag === "CHOCH");
+  choch.forEach((ev, i) => {
+    const isMajor = i === choch.length - 1;
+    const yy = y(ev.price);
+    if (yy === null || yy < 0 || yy > H) return;
+    const xx = x(timeSec(ev.time));
+    ctx.fillStyle = isMajor ? "#ea3943" : "rgba(234,57,67,.75)";
+    ctx.font = isMajor ? "bold 11px 'Segoe UI', sans-serif" : "10px 'Segoe UI', sans-serif";
+    const txt = isMajor ? "Major CHoCH" : "Minor CHoCH";
+    const tx = xx !== null ? xx : W * 0.5;
+    ctx.fillText(txt, Math.min(tx, W - 100), yy - 5);
+    if (isMajor) ctx.fillRect(Math.min(tx, W - 100), yy + 3, 78, 1);
+  });
+  ctx.font = "10px 'Segoe UI', sans-serif";
+
+  /* kotak nilai kanan ala GODMODE: label di luar + kotak nilai */
+  const box = (priceVal, label, bg, fg) => {
+    if (priceVal === null || priceVal === undefined || isNaN(priceVal)) return;
+    const yy = y(priceVal);
+    if (yy === null || yy < 8 || yy > H - 8) return;
+    const bw = 72, bh = 17;
+    ctx.font = "10px 'Segoe UI', sans-serif";
+    ctx.fillStyle = bg;
+    ctx.fillRect(W - bw - 2, yy - bh / 2, bw, bh);
+    ctx.fillStyle = fg;
+    ctx.fillText(fmt(priceVal), W - bw + 6, yy + 3.5);
+    ctx.fillStyle = bg;
+    ctx.textAlign = "right";
+    ctx.fillText(label, W - bw - 8, yy + 3.5);
+    ctx.textAlign = "left";
+  };
+  box(snap.overlays?.eq, "Fib 0.5 (EQ)", "#e6e9ee", "#111");
+  box(snap.overlays?.gp, "Fib 0.618 (GP)", "#d9b64a", "#111");
+  box(snap.overlays?.ote, "Fib 0.786 (OTE)", "#d9b64a", "#111");
+  const su = snap.setup;
+  const isEngineTf2 = !state.engineTf || state.activeTf === state.engineTf;
+  if (su && isEngineTf2 && state.toggles.RR) {
+    box(su.sl, "SL", "#ea3943", "#fff");
+    box(su.entry, "Entry", "#e6e9ee", "#111");
+    box(su.tp1, "TP 1", "#16c784", "#fff");
+    box(su.tp2, "TP 2", "#16c784", "#fff");
+  }
 }
 
 /* ============================== ALERT (ALARM/SND/NOTIF) ============================== */
-function beep() {
+function tone(freq, t0, dur, gainV = 0.2) {
+  const ctx = state.audioCtx;
+  const osc = ctx.createOscillator(), gain = ctx.createGain();
+  osc.connect(gain); gain.connect(ctx.destination);
+  osc.frequency.value = freq; osc.type = "sine";
+  gain.gain.setValueAtTime(gainV, ctx.currentTime + t0);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t0 + dur);
+  osc.start(ctx.currentTime + t0); osc.stop(ctx.currentTime + t0 + dur);
+}
+function beep(kind = "single") {
   try {
     state.audioCtx = state.audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const ctx = state.audioCtx;
-    [0, 0.25].forEach(t => {
-      const osc = ctx.createOscillator(), gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.frequency.value = 880; osc.type = "sine";
-      gain.gain.setValueAtTime(0.25, ctx.currentTime + t);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.2);
-      osc.start(ctx.currentTime + t); osc.stop(ctx.currentTime + t + 0.2);
-    });
-  } catch (e) {}
-}
-function speak(text) {
-  try {
-    if (!("speechSynthesis" in window)) return;
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "id-ID"; u.rate = 1.05;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
+    if (kind === "alarm") { tone(880, 0, .18); tone(880, .25, .18); tone(880, .5, .3); }
+    else tone(880, 0, .2);
   } catch (e) {}
 }
 function notify(title, body) {
@@ -210,9 +298,9 @@ function detectAlerts(snap) {
   const key = log.length ? log[0].time : null;
   const newSignal = key && key !== state.lastSigKey ? log[0] : null;
   if (state.lastSigKey !== null && newSignal) {
-    const txt = `Sinyal ${newSignal.side} ${snap.symbol} ${newSignal.tf} di ${fmt(newSignal.entry)}, SL ${fmt(newSignal.sl)}, TP satu ${fmt(newSignal.tp1)}`;
-    if (state.toggles.ALARM) beep();
-    if (state.toggles.SND) speak(`New ${newSignal.side} signal. ${newSignal.side === "LONG" ? "Buy" : "Sell"} at ${fmt(newSignal.entry)}. Secure your profit at target.`);
+    const txt = `Sinyal ${newSignal.side} ${snap.symbol} ${newSignal.tf} di ${fmt(newSignal.entry)}, SL ${fmt(newSignal.sl)}, TP1 ${fmt(newSignal.tp1)}`;
+    if (state.toggles.ALARM) beep("alarm");
+    if (state.toggles.SND) beep("single");
     if (state.toggles.NOTIF) notify(`⚡ ${newSignal.side} ${snap.symbol} ${newSignal.tf}`, txt);
   }
   if (key) state.lastSigKey = key;
@@ -220,9 +308,9 @@ function detectAlerts(snap) {
   const st2 = snap.two_stage;
   if (st2 && st2.stage !== state.lastStage) {
     if (state.lastStage !== -1) {
-      if (st2.stage === 2 && state.toggles.SND) speak(`${st2.label}. ${st2.detail}.`);
-      if (st2.stage === 1 && state.toggles.SND) speak(`Get ready. ${st2.detail}.`);
-      if (st2.stage === 2 && state.toggles.ALARM) beep();
+      if (st2.stage === 2 && state.toggles.SND) beep("single");
+      if (st2.stage === 1 && state.toggles.SND) beep("single");
+      if (st2.stage === 2 && state.toggles.ALARM) beep("alarm");
       if (st2.stage === 2 && state.toggles.NOTIF) notify(`⚡ ${st2.label}`, st2.detail);
     }
     state.lastStage = st2.stage;
@@ -344,11 +432,12 @@ function renderSnapshot(snap) {
       <span class="ev-dir ${ev.dir === "UP" ? "up" : "down"}">${ev.dir === "UP" ? "▲ UP" : "▼ DOWN"}</span>
     </div>`).join("") || `<div class="dim-text">— belum ada event</div>`;
 
-  /* heatmap */
+  /* heatmap (kolom dinamis sesuai jumlah TF) */
   const hm = snap.heatmap;
-  hm.tfs.slice(0, 4).forEach((tf, i) => { $(`hm-tf${i}`).textContent = tf; });
+  const tfsShow = hm.tfs.slice(0, 6);
+  $("hm-head-row").innerHTML = `<th>INDICATOR</th>` + tfsShow.map(tf => `<th>${tf}</th>`).join("");
   $("hm-body").innerHTML = Object.entries(hm.rows).map(([k, vals]) => `
-    <tr><td>${k.toUpperCase()}</td>${vals.slice(0, 4).map(v => `<td><span class="${heatClass(v)}">${v}</span></td>`).join("")}</tr>`).join("");
+    <tr><td>${k.toUpperCase()}</td>${vals.slice(0, 6).map(v => `<td><span class="${heatClass(v)}">${v}</span></td>`).join("")}</tr>`).join("");
   const trendCols = hm.rows.Trend || [];
   const bias = trendCols[trendCols.length - 1];
   $("hm-bias").textContent = bias === "BEAR" ? "MONITORING - BEAR BIAS" : bias === "BULL" ? "MONITORING - BULL BIAS" : "MONITORING";
@@ -452,6 +541,7 @@ async function connectWS() {
         state.candles.push(c);
         state.series.update({ time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4] });
         updateCvdSeries();
+        drawCanvas();
       }
     };
     state.ws.onclose = () => {
@@ -508,7 +598,6 @@ function bindUI() {
         && Notification.permission === "default") {
       Notification.requestPermission();
     }
-    if (name === "SND" && state.toggles.SND) speak("Sound aktif");
     drawOverlays();
   }));
   $("btn-sync").addEventListener("click", async () => {

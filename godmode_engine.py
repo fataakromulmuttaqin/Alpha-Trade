@@ -122,11 +122,14 @@ def _pivots(df, L=5, lookback=300):
 
 
 def multi_zones(df, a, n_levels=3, L=5, lookback=300):
-    """S1..S3 supply (dari atas) & D1..D3 demand (dari bawah), strength = lebar poin."""
+    """S1..S3 supply (dari atas) & D1..D3 demand (dari bawah), strength = lebar poin.
+    Setiap zona membawa `time` (bar konfirmasi pivot) untuk digambar sebagai band."""
     c = float(df["close"].iloc[-1])
     highs, lows = _pivots(df, L, lookback)
-    sup = [{"top": p + 0.5 * a, "bottom": p - 0.5 * a, "price": p} for _, p in highs[-n_levels:]]
-    dem = [{"top": p + 0.5 * a, "bottom": p - 0.5 * a, "price": p} for _, p in lows[-n_levels:]]
+    sup = [{"top": p + 0.5 * a, "bottom": p - 0.5 * a, "price": p, "time": t}
+           for t, p in highs[-n_levels:]]
+    dem = [{"top": p + 0.5 * a, "bottom": p - 0.5 * a, "price": p, "time": t}
+           for t, p in lows[-n_levels:]]
     sup = sorted(sup, key=lambda z: z["top"], reverse=True)   # S1 terdekat dari atas
     dem = sorted(dem, key=lambda z: z["bottom"], reverse=True)  # D1 terdekat dari bawah
     out = {"supply": [], "demand": []}
@@ -134,12 +137,14 @@ def multi_zones(df, a, n_levels=3, L=5, lookback=300):
         out["supply"].append({"level": f"S{i}", "top": round(z["top"], 2),
                               "bottom": round(z["bottom"], 2),
                               "strength_pts": round(z["top"] - z["bottom"], 2),
-                              "dist_pts": round(z["bottom"] - c, 2)})
+                              "dist_pts": round(z["bottom"] - c, 2),
+                              "time": str(z["time"])})
     for i, z in enumerate(dem, 1):
         out["demand"].append({"level": f"D{i}", "top": round(z["top"], 2),
                               "bottom": round(z["bottom"], 2),
                               "strength_pts": round(z["top"] - z["bottom"], 2),
-                              "dist_pts": round(c - z["top"], 2)})
+                              "dist_pts": round(c - z["top"], 2),
+                              "time": str(z["time"])})
     return out
 
 
@@ -225,7 +230,7 @@ def events_full(df, L=5, sweep_lookback=20, max_events=8):
 
 
 # ----------------------------- Confluence GODMODE ---------------------------
-def confluence_godmode(df, df_htf, cfg, zones_multi, vol_flow):
+def confluence_godmode(df, df_htf, cfg, zones_multi, vol_flow, htf_label=None):
     """Skor 0-100: HTF 20 + Zone 20-30 + Sweep 20 + 2-Candle 20 + bonus konteks."""
     from confluence_engine import htf_trend
     trend = htf_trend(df, cfg, df_htf)
@@ -261,7 +266,7 @@ def confluence_godmode(df, df_htf, cfg, zones_multi, vol_flow):
     two_ok = two_bull or two_bear
 
     checks = [
-        {"label": f"HTF {cfg.htf.upper()} Trend",
+        {"label": f"HTF {(htf_label or cfg.htf).upper()} Trend",
          "val": "BULLISH" if htf_dir == 1 else "BEARISH" if htf_dir == -1 else "RANGING",
          "ok": htf_dir != 0, "pts": 20 if htf_dir != 0 else 0},
         {"label": "Zone",

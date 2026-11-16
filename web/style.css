@@ -100,7 +100,9 @@ button { cursor: pointer; font-family: inherit; }
 .chart-controls { display: flex; gap: 6px; align-items: center; }
 .bars-btn { padding: 3px 10px; font-size: 10px; }
 .bars-btn.on { color: var(--gold); border-color: var(--gold); }
-#chart { flex: 1; min-height: 470px; }
+#chart-wrap { position: relative; flex: 1; min-height: 470px; }
+#chart { position: absolute; inset: 0; }
+#overlay { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 
 /* ---------- right rail ---------- */
 .rail { display: flex; flex-direction: column; gap: 10px; }

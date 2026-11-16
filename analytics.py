@@ -273,10 +273,11 @@ def header_stats(df, df_htf, cfg, cf=None):
             "fib": f.get("state", "-"), "equilibrium": f.get("equilibrium")}
 
 
-def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD", view_tf=None):
+def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD", view_tf=None,
+                   htf_tf=None):
     """Snapshot penuh dashboard. buffers = {tf: DataFrame} (semua bar close).
-    `view_tf`: TF yang sedang dilihat di chart — panel entry dihitung untuk TF itu
-    (HTF = TF berikutnya yang lebih besar dari daftar buffer)."""
+    `view_tf`: TF yang sedang dilihat di chart — panel entry dihitung untuk TF itu.
+    `htf_tf`: override TF tren (dipakai AppState agar sama dengan engine)."""
     order = {"1m": 1, "3m": 2, "5m": 5, "15m": 15, "30m": 30, "1h": 60,
              "4h": 240, "1d": 1440}
     tfs = sorted(buffers, key=lambda t: order.get(t, 0))
@@ -285,7 +286,7 @@ def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD", vie
     else:
         tf_entry = tfs[0] if tfs else None
     higher = [t for t in tfs if order.get(t, 0) > order.get(tf_entry, 0)]
-    tf_htf = higher[0] if higher else None
+    tf_htf = htf_tf if (htf_tf and htf_tf in buffers) else (higher[0] if higher else None)
     df = buffers.get(tf_entry)
     df_htf = buffers.get(tf_htf)
     if df is None or len(df) < 260:
@@ -301,7 +302,7 @@ def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD", vie
     ts_info = two_stage(df, zm)
     sig = generate_signals(df, cfg, htf_df=df_htf)
 
-    cf = confluence_godmode(df, df_htf, cfg, zm, vf)
+    cf = confluence_godmode(df, df_htf, cfg, zm, vf, htf_label=tf_htf)
     choch_ok = choch_recent(df)
     div_ok = rsi_divergence_recent(df)
     label = classify_setup(cf, choch_ok, div_ok)
