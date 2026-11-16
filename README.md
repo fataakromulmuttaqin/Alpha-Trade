@@ -30,12 +30,25 @@ pip install -r requirements.txt
 # 1) Uji dashboard tanpa internet (data sintetis, candle 5m dipercepat)
 python run.py --demo
 
-# 2) Live: XAUUSD proxy via PAXGUSDT spot, entry 15m + tren 4h NATIVE dari Binance
-python run.py --symbol PAXGUSDT --label XAUUSD --entry-tf 15m --htf 4h
+# 2) Live: XAUUSD proxy via PAXGUSDT spot, entry 5m + tren 4h — 6 TF native (1m..4h)
+python run.py --symbol PAXGUSDT --label XAUUSD --entry-tf 5m --htf 4h
 
-# 3) Kripto / simbol lain
+# 3) EMAS ASLI (futures COMEX) via Yahoo Finance, polling REST tanpa key:
+python run.py --provider yahoo --symbol "GC=F" --label XAUUSD --entry-tf 5m --htf 1h
+
+# 4) Kripto / simbol lain
 python run.py --symbol BTCUSDT --label BTCUSDT --entry-tf 15m --htf 4h
 ```
+
+**Provider data & fallback otomatis** (`binance_feed.py`):
+- Utama: Binance realtime WS — host utama `api.binance.com`, fallback otomatis ke
+  `data-api.binance.vision` (endpoint publik resmi, lolos blokir jaringan umum);
+  bisa dioverride env `AT_REST_BASE` / `AT_WS_BASE`.
+- Cadangan 1: **Bybit v5** public spot (REST + WS, dinormalisasi ke format Binance).
+- Cadangan 2: **Yahoo Finance** chart API — punya emas asli `GC=F` (futures COMEX),
+  polling REST (tanpa WS), interval 4h di-resample dari 60m.
+- Chart: **lightweight-charts v5** (library yang sama dengan dashboard Meridian —
+  `web/vendor/`), candle + volume histogram + overlay canvas zona/CHoCH/kotak nilai.
 
 Buka **http://localhost:8788** (WS broadcast di **ws://localhost:8789**, keduanya
 bisa diubah via `AT_PORT` / `AT_WS_PORT`). Sinyal hanya dievaluasi pada candle

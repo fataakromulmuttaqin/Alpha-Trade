@@ -32,11 +32,17 @@ function initChart() {
     upColor: "#16c784", downColor: "#ea3943", borderVisible: false,
     wickUpColor: "#16c784", wickDownColor: "#ea3943",
   });
+  /* volume histogram — persis CandleChart.tsx Meridian (margin 0.82, warna candle) */
+  state.volSeries = state.chart.addSeries(LightweightCharts.HistogramSeries, {
+    priceScaleId: "vol", priceFormat: { type: "volume" },
+    lastValueVisible: false, priceLineVisible: false,
+  });
+  state.chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
   state.cvdSeries = state.chart.addSeries(LightweightCharts.LineSeries, {
     color: "#d9b64a", lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
     priceScaleId: "cvd",
   });
-  state.chart.priceScale("cvd").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
+  state.chart.priceScale("cvd").applyOptions({ scaleMargins: { top: 0.93, bottom: 0 } });
   state.markersApi = LightweightCharts.createSeriesMarkers(state.series, []);
   setupCanvas();
 }
@@ -49,6 +55,12 @@ async function loadCandles(tf) {
   state.series.setData(state.candles.map(c => ({
     time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4],
   })));
+  if (state.volSeries) {
+    state.volSeries.setData(state.candles.map(c => ({
+      time: c[0] / 1000, value: c[5],
+      color: c[4] >= c[1] ? "rgba(34,197,94,0.38)" : "rgba(239,68,68,0.38)",
+    })));
+  }
   state.activeTf = tf;
   document.querySelectorAll(".tf-btn").forEach(b => b.classList.toggle("on", b.dataset.tf === tf));
   $("active-tf").textContent = tf.toUpperCase();
@@ -540,6 +552,12 @@ async function connectWS() {
         const c = msg.candle;
         state.candles.push(c);
         state.series.update({ time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4] });
+        if (state.volSeries) {
+          state.volSeries.update({
+            time: c[0] / 1000, value: c[5],
+            color: c[4] >= c[1] ? "rgba(34,197,94,0.38)" : "rgba(239,68,68,0.38)",
+          });
+        }
         updateCvdSeries();
         drawCanvas();
       }

@@ -232,6 +232,10 @@ async def main():
     ap.add_argument("--htf", default=os.getenv("AT_HTF", "4h"))
     ap.add_argument("--market", default=os.getenv("AT_MARKET", "spot"),
                     choices=["spot", "futures"])
+    ap.add_argument("--provider", default=os.getenv("AT_PROVIDER", "binance"),
+                    choices=["binance", "yahoo"],
+                    help="binance = realtime WS (fallback otomatis); "
+                         "yahoo = polling REST (GC=F = emas asli COMEX)")
     ap.add_argument("--bars", type=int, default=int(os.getenv("AT_BARS", "1500")))
     ap.add_argument("--port", type=int, default=int(os.getenv("AT_PORT", "8788")))
     ap.add_argument("--ws-port", type=int, default=int(os.getenv("AT_WS_PORT", "8789")))
@@ -262,7 +266,7 @@ async def main():
                        on_signal=lambda txt: print(txt, flush=True),
                        on_candle=lambda tf, buf: asyncio.get_running_loop().create_task(
                            state.on_candle(tf, buf)),
-                       cache_dir="cache")
+                       cache_dir="cache", provider=args.provider)
         os.makedirs("cache", exist_ok=True)
 
         # seed awal langsung tersedia untuk dashboard sebelum candle pertama close
