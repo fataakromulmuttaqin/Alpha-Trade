@@ -65,16 +65,29 @@ def apply_mode(cfg, sensitivity=None, exit_protocol=None):
 
 
 # ----------------------------- Kondisi pasar --------------------------------
+def adx_value(df, length=14):
+    """ADX via pandas-ta-classic (opsional); None bila lib tidak terpasang."""
+    try:
+        import pandas_ta_classic as ta
+        adx_df = ta.adx(df["high"], df["low"], df["close"], length=length)
+        return float(adx_df.iloc[-1, 0])
+    except Exception:
+        return None
+
+
 def market_condition(df, lookback=60):
-    """[TRENDING] bila range bergerak jauh dari tengah; [SIDEWAYS] bila mampu."""
+    """[TRENDING] / [SIDEWAYS] — prioritas ADX (>=25 tren, <=18 sideways);
+    fallback ke heuristik range-vs-ATR bila pandas-ta-classic tidak terpasang."""
     w = df.tail(lookback)
     hi, lo = float(w["high"].max()), float(w["low"].min())
     rng = hi - lo
     if rng <= 0:
         return "SIDEWAYS", hi, lo
+    adx = adx_value(df)
+    if adx is not None:
+        return ("TRENDING" if adx >= 25 else "SIDEWAYS" if adx <= 18 else "TRENDING"), hi, lo
     c = float(df["close"].iloc[-1])
     pos = (c - lo) / rng
-    # dekat tengah range (35-65%) dan range sempit vs ATR -> sideways
     a = float(atr_fn(df).iloc[-1])
     narrow = rng < 6 * a
     sideways = narrow and 0.35 <= pos <= 0.65

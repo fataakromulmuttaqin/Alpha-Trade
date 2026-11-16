@@ -1,0 +1,12 @@
+# Dependency riset/opsional — tidak dibutuhkan untuk menjalankan Alpha-Trade dasar
+# Install: pip install -r requirements-research.txt
+#
+# catatan:
+# - pandas-ta asli ditarik dari PyPI & butuh py>=3.12 -> pakai fork pandas-ta-classic
+# - smartmoneyconcepts TANPA lisensi: boleh dipakai sebagai dependency, jangan copy kodenya
+# - backtesting.py butuh index DatetimeIndex TANPA timezone + kolom kapital (Open/High/Low/Close/Volume)
+# - ccxt: batasi ke spot jika jaringan memblokir fapi: {"options": {"fetchMarkets": ["spot"]}}
+smartmoneyconcepts
+ccxt
+backtesting
+pandas-ta-classic
