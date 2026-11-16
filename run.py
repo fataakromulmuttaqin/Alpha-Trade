@@ -1,0 +1,234 @@
+"""
+Alpha-Trade runner — feed + engine + dashboard dalam satu proses.
+-----------------------------------------------------------------
+Live (Binance, multi-TF native):
+  python run.py --symbol PAXGUSDT --entry-tf 15m --htf 4h
+Demo offline (data sintetis, tanpa internet):
+  python run.py --demo
+Dashboard : http://localhost:8788   |   WS broadcast: ws://localhost:8789
+Eksekusi  : EXECUTION_MODE=off|paper|testnet  (lihat testnet_executor.py)
+"""
+import argparse
+import asyncio
+import os
+import time
+
+import numpy as np
+import pandas as pd
+
+from analytics import build_snapshot
+from binance_feed import MultiFeed, INTERVAL_MS
+from confluence_engine import Config, generate_signals
+from server import DashboardServer
+from testnet_executor import TestnetExecutor
+
+
+class AppState:
+    """Buffer per TF + snapshot terakhir + log sinyal + executor."""
+
+    def __init__(self, symbol, cfg, executor, label=None):
+        self.symbol = symbol
+        self.label = label or symbol
+        self.cfg = cfg
+        self.executor = executor
+        self.buffers = {}
+        self.snapshot_data = None
+        self.signals_log = []
+        self._last_sig_time = None
+        self.server = None
+        self.lock = asyncio.Lock()
+
+    # ---- dipakai DashboardServer
+    def snapshot(self):
+        return self.snapshot_data
+
+    def candles(self, tf, limit=1500):
+        df = self.buffers.get(tf)
+        if df is None or df.empty:
+            return None
+        d = df.tail(limit)
+        ms = INTERVAL_MS[tf]
+        return [[int(t.timestamp() * 1000), round(float(r["open"]), 2),
+                 round(float(r["high"]), 2), round(float(r["low"]), 2),
+                 round(float(r["close"]), 2), round(float(r["volume"]), 2)]
+                for t, r in d.iterrows()] if ms else None
+
+    def signals(self):
+        return {"signals": self.signals_log}
+
+    def health(self):
+        return {"ok": True, "symbol": self.label, "mode": self.executor.mode,
+                "tfs": list(self.buffers), "bars": {t: len(b) for t, b in self.buffers.items()},
+                "clients": len(self.server.clients) if self.server else 0}
+
+    # ---- alur utama: candle close dari TF entry
+    async def on_candle(self, interval, buf, demo=False):
+        self.buffers[interval] = buf
+        if interval != self.entry_tf:
+            return
+        htf_buf = self.buffers.get(self.htf)
+        if len(buf) < 260 or htf_buf is None or len(htf_buf) < 210:
+            return                                       # engine butuh warm-up
+
+        async with self.lock:
+            sig = generate_signals(buf, self.cfg, htf_df=htf_buf)
+            self._handle_new_signals(sig)
+            snap = build_snapshot({self.entry_tf: buf, self.htf: htf_buf},
+                                  self.cfg, self.signals_log, symbol=self.label)
+            if snap:
+                snap["demo"] = demo
+                snap["exec_mode"] = self.executor.mode
+            self.snapshot_data = snap
+
+        if self.server:
+            self.server.broadcast_threadsafe({"type": "snapshot", "data": snap})
+            last = buf.iloc[-1]
+            self.server.broadcast_threadsafe({
+                "type": "candle", "tf": interval,
+                "candle": [int(buf.index[-1].timestamp() * 1000),
+                           float(last["open"]), float(last["high"]),
+                           float(last["low"]), float(last["close"]),
+                           float(last["volume"])]})
+
+    def _handle_new_signals(self, sig):
+        if sig.empty:
+            return
+        for t, row in sig.iterrows():
+            if self._last_sig_time is not None and t <= self._last_sig_time:
+                continue
+            self._last_sig_time = t
+            entry = {"time": t.isoformat(), "tf": self.entry_tf,
+                     "side": "LONG" if row["signal"] == 1 else "SHORT",
+                     "entry": round(float(row["entry"]), 2),
+                     "sl": round(float(row["sl"]), 2),
+                     "tp1": round(float(row["tp1"]), 2),
+                     "tp2": round(float(row["tp2"]), 2),
+                     "score": int(row["score"])}
+            self.signals_log.insert(0, entry)
+            self.signals_log = self.signals_log[:30]
+            print(f"[sinyal] {entry['time']} {self.label} {entry['tf']} "
+                  f"{entry['side']} entry={entry['entry']} sl={entry['sl']} "
+                  f"tp1={entry['tp1']} tp2={entry['tp2']} skor={entry['score']}", flush=True)
+            self.executor.execute_signal(self.symbol, row)   # no-op saat mode off
+
+
+# ----------------------------- Demo feed ------------------------------------
+class DemoFeed:
+    """Feed sintetis untuk uji dashboard tanpa internet:
+    random-walk + clustering volatilitas + trend regime, candle 5m dipercepat."""
+
+    def __init__(self, entry_tf="5m", htf="4h", n_seed=800, tick_sec=1.5):
+        self.entry_tf, self.htf = entry_tf, htf
+        self.n_seed = n_seed
+        self.tick_sec = tick_sec
+        self.price = 3850.0
+
+    def _candle(self, t, step_ms):
+        vol = np.random.uniform(0.4, 1.6) * (1 if np.random.random() < 0.5 else 2.2)
+        drift = np.random.choice([-1, 0, 0, 1]) * 0.9
+        o = self.price
+        c = o + np.random.normal(drift, 1.5 * vol)
+        hi = max(o, c) + abs(np.random.normal(0, 0.9 * vol))
+        lo = min(o, c) - abs(np.random.normal(0, 0.9 * vol))
+        v = float(np.random.uniform(60, 900))
+        self.price = c
+        idx = pd.DatetimeIndex([pd.Timestamp(t, unit="ms", tz="UTC")], name="time")
+        return pd.DataFrame({"open": [o], "high": [hi], "low": [lo],
+                             "close": [c], "volume": [v], "close_time": [t + step_ms - 1]},
+                            idx)
+
+    def _seed(self, tf="5m", n=None):
+        step = INTERVAL_MS[tf]
+        n = n or self.n_seed
+        t0 = int(time.time() * 1000) - n * step
+        rows = [self._candle(t0 + i * step, step) for i in range(n)]
+        return pd.concat(rows)
+
+    async def run(self, state):
+        step = INTERVAL_MS[self.entry_tf]
+        hstep = INTERVAL_MS[self.htf]
+        # histori 4h dulu (cukup panjang utk EMA200), lalu TF entry meneruskannya
+        htf_buf = self._seed(self.htf, n=420)
+        self.price = float(htf_buf["close"].iloc[-1])
+        buf = self._seed(self.entry_tf)
+        print(f"[demo] seed {len(buf)} candle {self.entry_tf} + {len(htf_buf)} candle {self.htf}",
+              flush=True)
+        await state.on_candle(self.entry_tf, buf, demo=True)
+        await state.on_candle(self.htf, htf_buf, demo=True)
+        t = int(time.time() * 1000)
+        t_htf = int(htf_buf.index[-1].timestamp() * 1000) + hstep
+        htf_every = max(1, hstep // step)                 # 1 candle HTF per N candle entry
+        i = 0
+        while True:
+            await asyncio.sleep(self.tick_sec)
+            t += step
+            i += 1
+            buf = pd.concat([buf, self._candle(t, step)]).iloc[-1500:]
+            if i % htf_every == 0:                        # candle 4h baru (closed)
+                htf_buf = pd.concat([htf_buf, self._candle(t_htf, hstep)]).iloc[-1500:]
+                t_htf += hstep
+                await state.on_candle(self.htf, htf_buf, demo=True)
+            await state.on_candle(self.entry_tf, buf, demo=True)
+
+
+# ----------------------------- Main ------------------------------------------
+async def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--demo", action="store_true", help="data sintetis tanpa internet")
+    ap.add_argument("--symbol", default=os.getenv("AT_SYMBOL", "PAXGUSDT"))
+    ap.add_argument("--label", default=os.getenv("AT_LABEL", "XAUUSD"))
+    ap.add_argument("--entry-tf", default=os.getenv("AT_ENTRY_TF", "15m"))
+    ap.add_argument("--htf", default=os.getenv("AT_HTF", "4h"))
+    ap.add_argument("--market", default=os.getenv("AT_MARKET", "spot"),
+                    choices=["spot", "futures"])
+    ap.add_argument("--bars", type=int, default=int(os.getenv("AT_BARS", "1500")))
+    ap.add_argument("--port", type=int, default=int(os.getenv("AT_PORT", "8788")))
+    ap.add_argument("--ws-port", type=int, default=int(os.getenv("AT_WS_PORT", "8789")))
+    args = ap.parse_args()
+
+    cfg = Config(htf=args.htf)
+    executor = TestnetExecutor(market=args.market)
+    state = AppState(args.symbol, cfg, executor, label=args.label)
+    server = DashboardServer(state, args.port, args.ws_port)
+    state.server = server
+    await server.start()
+
+    if args.demo:
+        state.entry_tf, state.htf = "5m", "4h"
+        print(f"[run] mode DEMO — {state.label} (sintetis) | exec={executor.mode}", flush=True)
+        feed = DemoFeed(entry_tf="5m", htf="4h")
+    else:
+        state.entry_tf, state.htf = args.entry_tf, args.htf
+        print(f"[run] {state.label} ({args.symbol}) entry={args.entry_tf} "
+              f"htf={args.htf} market={args.market} exec={executor.mode}", flush=True)
+        mf = MultiFeed(symbol=args.symbol, intervals=(args.entry_tf, args.htf),
+                       market=args.market, cfg=cfg, buffer_bars=args.bars,
+                       signal_tf=args.entry_tf,
+                       on_signal=lambda txt: print(txt, flush=True),
+                       on_candle=lambda tf, buf: asyncio.get_running_loop().create_task(
+                           state.on_candle(tf, buf)),
+                       cache_dir="cache")
+        os.makedirs("cache", exist_ok=True)
+
+        # seed awal langsung tersedia untuk dashboard sebelum candle pertama close
+        for tf in mf.feeds:
+            try:
+                mf.feeds[tf].seed()
+                state.buffers[tf] = mf.feeds[tf].buf
+            except Exception as e:
+                print(f"[seed] {tf} gagal: {e}", flush=True)
+        snap = build_snapshot(state.buffers, cfg, state.signals_log, state.label)
+        state.snapshot_data = snap
+
+        async def live_loop():
+            await mf.run()
+        return await live_loop()
+
+    await feed.run(state)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("stop")

@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# runtime data & cache
+cache/
+*.csv
+state.json
+
+# secrets — JANGAN pernah commit key
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+NUL

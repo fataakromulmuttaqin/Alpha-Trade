@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ALPHA-TRADE — SMC ENGINE</title>
+<link rel="stylesheet" href="style.css">
+<script src="vendor/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+
+<!-- ================= TOP BAR ================= -->
+<header class="topbar">
+  <div class="brand">
+    <button class="icon-btn" id="btn-back" title="back">←</button>
+    <span class="brand-name">ALPHA-TRADE</span>
+    <span class="brand-sub">SMC ENGINE</span>
+    <span class="chip chip-dim">v3.1</span>
+  </div>
+  <div class="topbar-right">
+    <button class="chip toggle" data-toggle="ALARM">ALARM OFF</button>
+    <button class="chip toggle" data-toggle="NOTIF">NOTIF: OFF</button>
+    <button class="chip toggle on" data-toggle="SND">SND: ON</button>
+    <button class="chip toggle on" data-toggle="OB">OB: ON</button>
+    <button class="chip toggle on" data-toggle="FVG">FVG: ON</button>
+    <button class="chip toggle on" data-toggle="CVD">CVD: ON</button>
+    <button class="chip toggle on" data-toggle="RR">RR: ON</button>
+    <button class="chip toggle on" data-toggle="LIMIT">LIMIT: ON</button>
+    <span class="sync-status"><span class="dot"></span> SYNCED <span id="sync-time">--:--:--</span></span>
+    <button class="btn-gold" id="btn-sync">SYNC</button>
+  </div>
+</header>
+
+<!-- ================= TIMEFRAME ROW ================= -->
+<div class="tf-row">
+  <div class="tf-left">
+    <span class="label-dim">TIMEFRAME</span>
+    <div class="tf-group" id="tf-group">
+      <button class="tf-btn" data-tf="1m">M1<small>SCALP</small></button>
+      <button class="tf-btn" data-tf="5m">M5<small>INTRADAY</small></button>
+      <button class="tf-btn" data-tf="15m">M15<small>SWING</small></button>
+      <button class="tf-btn" data-tf="30m">M30<small>CORE</small></button>
+      <button class="tf-btn" data-tf="1h">H1<small>STRUCTURE</small></button>
+      <button class="tf-btn" data-tf="4h">H4<small>HTF</small></button>
+    </div>
+  </div>
+  <div class="tf-right">
+    <span class="label-dim">SIGNAL MODE:</span>
+    <button class="chip mode-gold" id="chip-golden">SIGNAL GOLDEN: ON</button>
+    <button class="chip mode-dim" id="chip-highrisk">SIGNAL HIGH RISK: OFF</button>
+  </div>
+</div>
+<div class="active-row">
+  <span class="label-dim">ACTIVE:</span> <span id="active-tf" class="gold-text">--</span>
+  <span class="dim-text" id="active-desc">— institutional structure zones</span>
+</div>
+
+<!-- ================= STAT CARDS ================= -->
+<section class="stat-row">
+  <div class="stat-card"><div class="stat-label">PRICE</div><div class="stat-value" id="st-price">--</div><div class="stat-sub" id="st-symbol">XAUUSD Live</div></div>
+  <div class="stat-card"><div class="stat-label">RSI (14)</div><div class="stat-value" id="st-rsi">--</div><div class="stat-sub" id="st-rsi-sub">Neutral</div></div>
+  <div class="stat-card"><div class="stat-label">ATR (14)</div><div class="stat-value" id="st-atr">--</div><div class="stat-sub" id="st-atr-sub">Volatilitas TF entry</div></div>
+  <div class="stat-card"><div class="stat-label">STRUCTURE</div><div class="stat-value gold-text" id="st-structure">--</div><div class="stat-sub" id="st-structure-sub">—</div></div>
+  <div class="stat-card"><div class="stat-label">AI SCORE</div><div class="stat-value" id="st-ai">--<small>/100</small></div><div class="stat-sub" id="st-ai-sub">—</div></div>
+  <div class="stat-card"><div class="stat-label">FIBONACCI <span class="info">ⓘ</span></div><div class="stat-value teal-text" id="st-fib">--</div><div class="stat-sub" id="st-fib-sub">Equilibrium: --</div></div>
+</section>
+
+<!-- ================= MAIN GRID ================= -->
+<main class="main-grid">
+  <!-- ---- chart card ---- -->
+  <section class="card chart-card">
+    <div class="card-head">
+      <h3 id="chart-title">M5 INSTITUTIONAL MATRIX — XAUUSD</h3>
+      <div class="chart-controls">
+        <button class="chip bars-btn" data-bars="30">30</button>
+        <button class="chip bars-btn on" data-bars="80">80</button>
+        <button class="chip bars-btn" data-bars="150">150</button>
+        <button class="chip bars-btn" data-bars="0">ALL</button>
+        <span class="chip chip-green" id="chart-structure">EXPANDING</span>
+      </div>
+    </div>
+    <div id="chart"></div>
+  </section>
+
+  <!-- ---- right rail ---- -->
+  <aside class="rail">
+    <div class="card golden-card">
+      <div class="card-title gold-text">GOLDEN MODE</div>
+      <div class="big-price" id="golden-price">--</div>
+      <div class="badge badge-gold" id="golden-state">STANDBY</div>
+      <div class="card-sub" id="golden-sub">GET READY (GOLDEN)</div>
+    </div>
+    <div class="card highrisk-card">
+      <div class="card-title red-text">HIGH RISK MODE</div>
+      <div class="big-price" id="highrisk-price">--</div>
+      <div class="badge badge-dim" id="highrisk-state">WAIT</div>
+      <div class="card-sub" id="highrisk-sub">HIGH RISK OFF</div>
+    </div>
+
+    <div class="card confluence-card">
+      <div class="card-head"><div class="card-title">AI CONFLUENCE</div><span class="chip chip-green" id="conf-level">HIGH</span></div>
+      <div class="conf-top">
+        <div class="gauge" id="conf-gauge"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="34" class="gauge-bg"/><circle cx="40" cy="40" r="34" class="gauge-fg" id="gauge-fg"/></svg><div class="gauge-val" id="conf-val">--</div></div>
+        <div class="conf-meta"><div class="conf-label">CONFIDENCE</div><div class="conf-high" id="conf-high">--</div><div class="conf-action">ACTION: <span id="conf-action">--</span></div></div>
+      </div>
+      <div id="conf-checks" class="conf-checks"></div>
+      <div class="setup-note" id="setup-note">Menunggu konfirmasi setup…</div>
+    </div>
+
+    <div class="card volflow-card">
+      <div class="card-head"><div class="card-title">VOLUME FLOW</div><span class="chip chip-amber" id="vf-absorption">—</span></div>
+      <div class="vf-grid">
+        <div><div class="vf-label">BUY VOL</div><div class="vf-val green-text" id="vf-buy">--</div></div>
+        <div class="vf-mid"><div class="vf-label">NET CVD</div><div class="vf-val" id="vf-cvd">--</div></div>
+        <div class="vf-right"><div class="vf-label">SELL VOL</div><div class="vf-val red-text" id="vf-sell">--</div></div>
+      </div>
+      <div class="vf-bar"><div class="vf-buyers" id="vf-buyers-bar"></div><span class="vf-pct green-text" id="vf-buyers">--</span><span class="vf-pct red-text" id="vf-sellers">--</span></div>
+      <div class="vf-caption"><span class="green-text">BUYERS</span> based on last 20 closed candles <span class="red-text">SELLERS</span></div>
+    </div>
+  </aside>
+</main>
+
+<!-- ================= BOTTOM GRID ================= -->
+<section class="bottom-grid">
+  <!-- zone map -->
+  <div class="card zone-card">
+    <div class="card-head">
+      <div class="card-title">ZONE MAP — SUPPLY &amp; DEMAND</div>
+      <div class="zone-controls">
+        <span class="label-dim">MTS OFFSET</span><input id="mts-offset" value="10">
+        <button class="btn-gold sm" id="btn-zone-sync">SYNC</button>
+        <button class="btn-ghost sm" id="btn-zone-reset">RESET</button>
+        <span class="chip chip-dim">= BINANCE ↗ <span id="mts-val">10.00</span></span>
+        <span class="chip chip-red" id="zone-status">—</span>
+      </div>
+    </div>
+    <div class="zone-box supply">
+      <div class="zone-head"><span class="zone-tag red-text">▼ SUPPLY ZONE</span><span class="chip chip-red-outline" id="sup-action">ENTRY SELL</span></div>
+      <div class="zone-vals">
+        <div><div class="zone-cap">TOP — RESISTANCE</div><div class="zone-price red-text" id="sup-top">--</div></div>
+        <div class="zone-line"></div>
+        <div class="zone-right"><div class="zone-cap">BOTTOM — ENTRY SELL</div><div class="zone-price red-text" id="sup-bottom">--</div></div>
+      </div>
+      <div class="zone-foot"><span class="dim-text" id="sup-strength">Strength: --</span><span class="chip chip-amber" id="sup-status">—</span></div>
+    </div>
+    <div class="zone-box demand">
+      <div class="zone-head"><span class="zone-tag green-text">▲ DEMAND ZONE</span><span class="chip chip-green-outline" id="dem-action">ENTRY BUY</span></div>
+      <div class="zone-vals">
+        <div><div class="zone-cap">TOP — ENTRY BUY</div><div class="zone-price green-text" id="dem-top">--</div></div>
+        <div class="zone-line"></div>
+        <div class="zone-right"><div class="zone-cap">BOTTOM — SUPPORT</div><div class="zone-price green-text" id="dem-bottom">--</div></div>
+      </div>
+      <div class="zone-foot"><span class="dim-text" id="dem-strength">Strength: --</span><span class="chip chip-amber" id="dem-status">—</span></div>
+    </div>
+  </div>
+
+  <!-- structure events -->
+  <div class="card events-card">
+    <div class="card-head"><div class="card-title">MARKET STRUCTURE EVENTS <span class="info">ⓘ</span></div><span class="chip chip-dim" id="events-state">EXPANDING</span></div>
+    <div id="events-list" class="events-list"></div>
+  </div>
+
+  <!-- right bottom: heatmap + setup + log -->
+  <div class="bottom-right">
+    <div class="card heatmap-card">
+      <div class="card-head"><div class="card-title">MTF CONFLUENCE HEATMAP</div><span class="chip chip-green" id="hm-bias">MONITORING</span></div>
+      <table class="hm-table" id="hm-table">
+        <thead><tr><th>INDICATOR</th><th id="hm-tf0">--</th><th id="hm-tf1">--</th><th id="hm-tf2">--</th><th id="hm-tf3">--</th></tr></thead>
+        <tbody id="hm-body"></tbody>
+      </table>
+    </div>
+
+    <div class="card setup-card">
+      <div class="card-title" id="setup-title">TRADE SETUP</div>
+      <div class="setup-grid" id="setup-grid">
+        <div class="setup-cell"><div class="zone-cap">ENTRY</div><div class="setup-val" id="su-entry">--</div></div>
+        <div class="setup-cell"><div class="zone-cap">STOP LOSS</div><div class="setup-val red-text" id="su-sl">--</div></div>
+        <div class="setup-cell"><div class="zone-cap" id="su-tp1-cap">TP 1</div><div class="setup-val green-text" id="su-tp1">--</div></div>
+        <div class="setup-cell"><div class="zone-cap" id="su-tp2-cap">TP 2</div><div class="setup-val green-text" id="su-tp2">--</div></div>
+      </div>
+      <div class="rr-box"><div class="zone-cap">RISK / REWARD</div><div class="rr-val gold-text" id="su-rr">--</div></div>
+    </div>
+
+    <div class="card log-card">
+      <div class="card-head"><div class="card-title">SIGNAL ACTIVITY LOG</div><button class="btn-ghost sm" id="btn-clear-log">CLEAR</button></div>
+      <div id="log-list" class="log-list"><div class="dim-text">— Waiting for signals…</div></div>
+    </div>
+  </div>
+</section>
+
+<div class="footer-note"><span id="conn-status" class="dim-text">menghubungkan…</span></div>
+
+<script src="app.js"></script>
+</body>
+</html>
