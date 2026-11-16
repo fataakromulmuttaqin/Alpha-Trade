@@ -92,15 +92,24 @@ ATR multipliernya bergantung mode/exit-protocol.
 
 ## 7. AI Score 0–100 (observasi checklist)
 
-Contoh teramati (98/100, ACTION: EXECUTE):
-- HTF M15 Trend RANGING → **+20**
-- Zone AT SUPPLY → **+30** (di sampel lain AT SUPPLY = **+20** → bobot zona dinamis)
-- Sweep BEARISH SWEEP → **+20**
-- 2-Candle WAITING → **0** (saat CONFIRMED → **+20**)
-- Sisa poin hingga 100 berasal dari faktor yang tidak ditampilkan
-  (struktur, volume flow/CVD, bias heatmap MTF) → estimasi bonus ±18–28.
+Tiga sampel teramati:
 
-Interpretasi: skor = checklist terlihat (20–30/komponen) + bonus konteks.
+| Sampel | HTF M15 | Zone | Sweep | 2-Candle | Jumlah terlihat | Skor tampil |
+|---|---|---|---|---|---|---|
+| 1 | RANGING +20 | AT SUPPLY +30 | BEARISH SWEEP +20 | WAITING 0 | 70 | **98** (+28 tersembunyi) |
+| 2 (screenshot user) | RANGING +20 | AT SUPPLY +20 | BEARISH SWEEP +20 | CONFIRMED +20 | 80 | **98** (+18) |
+| 3 | RANGING +20 | AT SUPPLY +30 | BEARISH SWEEP +20 | CONFIRMED +30 | 100 | **99** |
+
+Kesimpulan: bobot dinamis — HTF 20 tetap; Zone 20–30 (zona kuat 30);
+Sweep 20; 2-Candle 0–30 (makin lengkap makin besar); sisanya penyesuaian
+konteks tersembunyi (struktur, volume/CVD, bias MTF) yang membuat skor
+bisa 98–99 bahkan saat checklist belum penuh. Interpretasi: skor = checklist
+(20–30/komponen) + bonus konteks.
+
+Contoh teks setup (sampel 3): **"HTF SNIPER ENTRY! Harga menyentuh H1 Bearish
+Order Block dan terkonfirmasi Rejection di M5. Target jauh!"** → cek Zone
+memakai **Order Block HTF (H1)**, rejection dikonfirmasi di TF entry (M5).
+
 Panel terkait: Market Structure `[TRENDING]/[SIDEWAYS]`, RSI 32.4 "OVERSOLD"
 (muncul di kartu contoh EXECUTE BUY), CHOCH BULLISH DETECTED sebagai
 "Structure Break".

@@ -238,7 +238,7 @@ def confluence_godmode(df, df_htf, cfg, zones_multi, vol_flow):
          "ok": sweep_ok, "pts": 20 if sweep_ok else 0},
         {"label": "2-Candle",
          "val": "CONFIRMED" if two_ok else "WAITING",
-         "ok": two_ok, "pts": 20 if two_ok else 0},
+         "ok": two_ok, "pts": 30 if two_ok else 0},
     ]
     base = sum(ch["pts"] for ch in checks)
 
