@@ -201,6 +201,19 @@ button { cursor: pointer; font-family: inherit; }
 
 .footer-note { margin-top: 10px; font-size: 11px; }
 
+/* GODMODE additions */
+.lamps { display: flex; justify-content: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.lamp { font-size: 9px; border-radius: 999px; padding: 3px 8px; border: 1px solid var(--border); color: var(--dim); letter-spacing: .04em; }
+.lamp.up { color: var(--green); border-color: rgba(22,199,132,.45); background: var(--green-soft); }
+.lamp.down { color: var(--red); border-color: rgba(234,57,67,.45); background: var(--red-soft); }
+.ai-reason { margin-top: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 10.5px; line-height: 1.55; color: var(--dim); }
+.ai-reason b { color: var(--text); }
+.zone-list { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+.zone-pill { font-family: var(--mono); font-size: 10px; border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; color: var(--dim); }
+.zone-pill.sup { color: var(--red); border-color: rgba(234,57,67,.35); }
+.zone-pill.dem { color: var(--green); border-color: rgba(22,199,132,.35); }
+.setup-label { margin: -4px 0 8px; font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--gold); }
+
 @media (max-width: 1200px) {
   .stat-row { grid-template-columns: repeat(3, 1fr); }
   .main-grid, .bottom-grid { grid-template-columns: 1fr; }

@@ -147,7 +147,6 @@ function renderSnapshot(snap) {
 
   $("chart-title").textContent = `${(snap.tf_entry || "").toUpperCase()} INSTITUTIONAL MATRIX — ${snap.symbol}`;
   $("chart-structure").textContent = st.structure;
-  $("events-state").textContent = st.structure;
 
   /* golden / high risk */
   $("golden-price").textContent = fmt(snap.golden.price);
@@ -170,9 +169,26 @@ function renderSnapshot(snap) {
       <span class="pts">+${ch.pts}</span>
     </div>`).join("");
   const su = snap.setup;
+  const ts2 = snap.two_stage;
   $("setup-note").textContent = su
-    ? `SETUP ${su.side} DETECTED! ${su.reason} — skor ${su.score}${su.fresh ? " (candle terakhir)" : ""}`
-    : "Menunggu konfirmasi 5 gate…";
+    ? `SETUP ${su.side} DETECTED!${su.label ? " [" + su.label + "]" : ""} ${su.reason} — skor ${su.score}${su.fresh ? " (candle terakhir)" : ""}`
+    : (ts2 ? `[${ts2.label}] ${ts2.detail}` : "Menunggu konfirmasi 5 gate…");
+
+  /* lampu konfluensi 4 lapis */
+  const lamps = snap.trend_lamps || {};
+  $("lamps").innerHTML = Object.entries(lamps).map(([k, v]) =>
+    `<span class="lamp ${v === "UP" ? "up" : v === "DOWN" ? "down" : ""}">${k}: ${v}</span>`).join("");
+
+  /* reasoning SITUASI / KARENA / MAKA */
+  const ar = snap.ai_reasoning;
+  $("ai-reason").innerHTML = ar
+    ? `<b>SITUASI</b> ${ar.situasi}<br><b>KARENA</b> ${ar.karena}<br><b>MAKA</b> ${ar.maka}`
+    : "";
+
+  /* chip sesi + kondisi pasar */
+  const ses = snap.session;
+  $("session-chip").textContent = ses ? `SESI: ${ses.session.toUpperCase()} (${ses.volatility.toUpperCase()})` : "SESI: --";
+  $("events-state").textContent = snap.market_condition || st.structure;
 
   /* volume flow */
   const vf = snap.volume_flow;
@@ -200,6 +216,14 @@ function renderSnapshot(snap) {
     $("dem-status").textContent = z.demand.status;
   }
 
+  /* zona multi-level S1-S3 / D1-D3 */
+  const zml = snap.zones_multi;
+  if (zml) {
+    const pill = (z, cls) => `<span class="zone-pill ${cls}">${z.level}: ${fmt(z.bottom)}–${fmt(z.top)} (${z.dist_pts >= 0 ? "+" : ""}${fmt(z.dist_pts, 1)}p)</span>`;
+    $("zone-list").innerHTML =
+      zml.supply.map(z => pill(z, "sup")).join("") + zml.demand.map(z => pill(z, "dem")).join("");
+  }
+
   /* events */
   $("events-list").innerHTML = (snap.events || []).map(ev => `
     <div class="ev-row">
@@ -220,6 +244,7 @@ function renderSnapshot(snap) {
 
   /* setup card */
   const sc = document.querySelector(".setup-card");
+  $("su-label").textContent = su && su.label ? `SETUP: ${su.label}` : (snap.setup_label ? `KANDIDAT: ${snap.setup_label}` : "");
   if (su) {
     $("setup-title").textContent = `${su.side} TRADE SETUP`;
     sc.classList.toggle("sell", su.side === "SELL");

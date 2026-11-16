@@ -48,6 +48,7 @@
     <span class="label-dim">SIGNAL MODE:</span>
     <button class="chip mode-gold" id="chip-golden">SIGNAL GOLDEN: ON</button>
     <button class="chip mode-dim" id="chip-highrisk">SIGNAL HIGH RISK: OFF</button>
+    <span class="chip chip-dim" id="session-chip">SESI: --</span>
   </div>
 </div>
 <div class="active-row">
@@ -89,6 +90,7 @@
       <div class="big-price" id="golden-price">--</div>
       <div class="badge badge-gold" id="golden-state">STANDBY</div>
       <div class="card-sub" id="golden-sub">GET READY (GOLDEN)</div>
+      <div class="lamps" id="lamps"></div>
     </div>
     <div class="card highrisk-card">
       <div class="card-title red-text">HIGH RISK MODE</div>
@@ -105,6 +107,7 @@
       </div>
       <div id="conf-checks" class="conf-checks"></div>
       <div class="setup-note" id="setup-note">Menunggu konfirmasi setup…</div>
+      <div class="ai-reason" id="ai-reason"></div>
     </div>
 
     <div class="card volflow-card">
@@ -152,6 +155,7 @@
       </div>
       <div class="zone-foot"><span class="dim-text" id="dem-strength">Strength: --</span><span class="chip chip-amber" id="dem-status">—</span></div>
     </div>
+    <div class="zone-list" id="zone-list"></div>
   </div>
 
   <!-- structure events -->
@@ -172,6 +176,7 @@
 
     <div class="card setup-card">
       <div class="card-title" id="setup-title">TRADE SETUP</div>
+      <div class="setup-label" id="su-label"></div>
       <div class="setup-grid" id="setup-grid">
         <div class="setup-cell"><div class="zone-cap">ENTRY</div><div class="setup-val" id="su-entry">--</div></div>
         <div class="setup-cell"><div class="zone-cap">STOP LOSS</div><div class="setup-val red-text" id="su-sl">--</div></div>

@@ -14,6 +14,11 @@ import numpy as np
 import pandas as pd
 
 from confluence_engine import Config, atr as atr_fn, ema, generate_signals, rsi
+from godmode_engine import (ai_reasoning, classify_setup, choch_recent,
+                            confluence_godmode, events_full, forecast,
+                            market_condition, multi_zones, rsi_divergence_recent,
+                            session_info, structure_label, trend_lamps,
+                            two_stage)
 from smc_structure import structure_events
 
 
@@ -248,21 +253,23 @@ def confluence(df, df_htf, cfg):
 
 
 # ----------------------------- Snapshot -------------------------------------
-def header_stats(df, df_htf, cfg):
+def header_stats(df, df_htf, cfg, cf=None):
     c = df["close"]
     r = float(rsi(c, cfg.rsi_len).iloc[-1])
     a_series = atr_fn(df, cfg.atr_len)
     a = float(a_series.iloc[-1])
     state, sub, _, _ = structure_state(df, 5)
+    label, label_sub = structure_label(df, 5)
     f = fib_state(df)
-    # AI score pakai confluence checklist
-    conf = confluence(df, df_htf, cfg)
+    score = cf["score"] if cf else 0
     return {"price": round(float(c.iloc[-1]), 2), "rsi": round(r, 1),
             "rsi_label": "Neutral" if 45 <= r <= 55 else ("Bullish" if r > 55 else "Bearish"),
             "atr": round(a, 2),
             "atr_label": "Volatilitas TF entry",
-            "structure": state, "structure_sub": sub,
-            "ai_score": conf["confidence"], "ai_label": "HIGH" if conf["confidence"] >= 75 else ("MED" if conf["confidence"] >= 50 else "LOW"),
+            "structure": label, "structure_sub": label_sub,
+            "structure_cycle": state,          # EXPANDING/CONTRACTING (lama)
+            "ai_score": score,
+            "ai_label": "HIGH" if score >= 75 else ("MED" if score >= 50 else "LOW"),
             "fib": f.get("state", "-"), "equilibrium": f.get("equilibrium")}
 
 
@@ -280,7 +287,17 @@ def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD"):
     a = float(atr_fn(df, cfg.atr_len).iloc[-1])
     f = fib_state(df)
     z = zones(df, a)
+    vf = volume_flow(df, 20)
+    zm = multi_zones(df, a)
+    cond, rng_hi, rng_lo = market_condition(df)
+    lamps = trend_lamps(df, df_htf)
+    ts_info = two_stage(df, zm)
     sig = generate_signals(df, cfg, htf_df=df_htf)
+
+    cf = confluence_godmode(df, df_htf, cfg, zm, vf)
+    choch_ok = choch_recent(df)
+    div_ok = rsi_divergence_recent(df)
+    label = classify_setup(cf, choch_ok, div_ok)
 
     setup = None
     if len(sig):
@@ -292,6 +309,7 @@ def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD"):
                  "tp1": round(float(row["tp1"]), 2), "tp2": round(float(row["tp2"]), 2),
                  "rr": f"1:{rr:.0f}", "score": int(row["score"]),
                  "reason": str(row["reason"]),
+                 "label": label if sig.index[-1] == df.index[-1] else None,
                  "fresh": sig.index[-1] == df.index[-1]}
 
     golden = {"price": round(float(df["close"].iloc[-1]), 2),
@@ -302,21 +320,35 @@ def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD"):
                  "state": "EXECUTE (HIGH RISK)" if setup and setup["fresh"] and setup["score"] < 3 else "WAIT",
                  "sub": "HIGH RISK " + ("ON" if setup and setup["fresh"] and setup["score"] < 3 else "OFF")}
 
+    # checklist lama tetap disediakan untuk kompatibilitas panel
+    old_conf = confluence(df, df_htf, cfg)
+
     return {
         "symbol": symbol, "ts": pd.Timestamp.now(tz="UTC").isoformat(),
         "tf_entry": tf_entry, "tf_htf": tf_htf,
-        "stats": header_stats(df, df_htf, cfg),
-        "volume_flow": volume_flow(df, 20),
+        "stats": header_stats(df, df_htf, cfg, cf),
+        "market_condition": cond,
+        "trend_lamps": lamps,
+        "volume_flow": vf,
         "zones": z,
-        "events": events_list(df, 5, cfg.sweep_lookback),
+        "zones_multi": zm,
+        "events": events_full(df, 5, cfg.sweep_lookback),
         "heatmap": {"tfs": [t.upper() for t in tfs],
                     "rows": {k: [heatmap_row(buffers[t])[k] for t in tfs]
                              for k in ("Trend", "Zone", "Momentum", "CVD Flow", "Breakout")}},
-        "setup": setup, "golden": golden, "high_risk": high_risk,
-        "confluence": confluence(df, df_htf, cfg),
+        "setup": setup, "setup_label": label,
+        "golden": golden, "high_risk": high_risk,
+        "confluence": {"confidence": cf["score"], "action": cf["action"],
+                       "checks": cf["checks"], "bonus": cf["bonus"],
+                       "legacy": old_conf},
+        "two_stage": ts_info,
+        "session": session_info(),
+        "ai_reasoning": ai_reasoning(df, zm, ts_info, cf),
+        "forecast": forecast(df, setup["entry"] if setup else None),
         "overlays": {"eq": f.get("eq"), "gp": f.get("gp"), "ote": f.get("ote"),
                      "range_high": f.get("high"), "range_low": f.get("low"),
                      "supply": [z["supply"]["top"], z["supply"]["bottom"]] if "supply" in z else None,
-                     "demand": [z["demand"]["top"], z["demand"]["bottom"]] if "demand" in z else None},
+                     "demand": [z["demand"]["top"], z["demand"]["bottom"]] if "demand" in z else None,
+                     "zones_multi": zm},
         "signals_log": signals_log or [],
     }

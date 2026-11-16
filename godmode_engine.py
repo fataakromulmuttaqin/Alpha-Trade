@@ -1,0 +1,394 @@
+"""
+GODMODE-style engine layer untuk Alpha-Trade
+--------------------------------------------
+Adaptasi semantik algoritma GODMODE SMC (hasil reverse-engineering halaman
+godmode.my.id — lihat docs/GODMODE-ALGORITHM.md) di atas confluence_engine.
+
+Komponen:
+  - market_condition()   : [TRENDING] / [SIDEWAYS]
+  - trend_lamps()        : 4 lampu tren — Micro EMA9 / Mini EMA20 / Macro EMA50 / Daily
+  - multi_zones()        : zona S1..S3 (supply) & D1..D3 (demand), strength dalam poin
+  - structure_label()    : BULLISH/BEARISH + "HH + HL STRUCTURE"
+  - events_full()        : CHOCH/HH/HL/LH/SWEEP/TC (GODMODE menampilkan HL juga)
+  - confluence_godmode() : checklist HTF(20) + Zone(20-30) + Sweep(20) + 2-Candle(20)
+                           + bonus konteks (struktur/volume/MTF) sampai 100
+  - classify_setup()     : GOLDEN SETUP / HTF SNIPER ENTRY / SWING REVERSAL /
+                           A+ SNIPER CID / STANDARD
+  - two_stage()          : Stage 1 "GET READY" (harga di zona) -> Stage 2 "VALID"
+                           (rejection 2-candle / CHOCH di zona)
+  - session_info()       : sesi WIB Asia/London/NY/Rollover + rekomendasi
+  - ai_reasoning()       : penjelasan 3 baris SITUASI / KARENA / MAKA
+  - forecast()           : proyeksi arah (slope EMA20 vs EMA50) + TP1/2/3 = 1/2/3 ATR,
+                           SL = 1.5 ATR (semantik FORECAST v5.0)
+"""
+import numpy as np
+import pandas as pd
+
+from confluence_engine import atr as atr_fn, ema, rsi
+from smc_structure import structure_events
+
+PIP = 10.0  # XAUUSD: 1 pip = 0.1 pt -> strength poin = pt; 25 pips = 2.5 pt
+
+
+# ----------------------------- Kondisi pasar --------------------------------
+def market_condition(df, lookback=60):
+    """[TRENDING] bila range bergerak jauh dari tengah; [SIDEWAYS] bila mampu."""
+    w = df.tail(lookback)
+    hi, lo = float(w["high"].max()), float(w["low"].min())
+    rng = hi - lo
+    if rng <= 0:
+        return "SIDEWAYS", hi, lo
+    c = float(df["close"].iloc[-1])
+    pos = (c - lo) / rng
+    # dekat tengah range (35-65%) dan range sempit vs ATR -> sideways
+    a = float(atr_fn(df).iloc[-1])
+    narrow = rng < 6 * a
+    sideways = narrow and 0.35 <= pos <= 0.65
+    return ("SIDEWAYS" if sideways else "TRENDING"), hi, lo
+
+
+# ----------------------------- Lampu tren -----------------------------------
+def trend_lamps(df, df_daily=None):
+    """Micro(EMA9) / Mini(EMA20) / Macro(EMA50) / Daily — UP/DOWN/FLAT."""
+    c = df["close"]
+    def lamp(series, price):
+        if len(series) < 2:
+            return "FLAT"
+        slope = float(series.iloc[-1] - series.iloc[-3]) if len(series) > 3 else float(series.iloc[-1] - series.iloc[-2])
+        if price > series.iloc[-1] and slope > 0:
+            return "UP"
+        if price < series.iloc[-1] and slope < 0:
+            return "DOWN"
+        return "FLAT"
+    p = float(c.iloc[-1])
+    e9, e20, e50 = ema(c, 9), ema(c, 20), ema(c, 50)
+    daily = "FLAT"
+    if df_daily is not None and len(df_daily) > 60:
+        dd = df_daily["close"]
+        if float(dd.iloc[-1]) > float(ema(dd, 50).iloc[-1]):
+            daily = "UP"
+        else:
+            daily = "DOWN"
+    return {"Micro (EMA 9)": lamp(e9, p), "Mini (EMA 20)": lamp(e20, p),
+            "Macro (EMA 50)": lamp(e50, p), "Daily Trend": daily}
+
+
+# ----------------------------- Zona multi-level -----------------------------
+def _pivots(df, L=5, lookback=300):
+    """Semua pivot high/low terkonfirmasi (bar p+L), terbaru terakhir."""
+    w = df.tail(lookback)
+    h, l = w["high"].to_numpy(), w["low"].to_numpy()
+    highs, lows = [], []
+    for p in range(L, len(w) - L):
+        if h[p] == h[p - L:p + L + 1].max():
+            highs.append((w.index[p + L], float(h[p])))
+        if l[p] == l[p - L:p + L + 1].min():
+            lows.append((w.index[p + L], float(l[p])))
+    return highs, lows
+
+
+def multi_zones(df, a, n_levels=3, L=5, lookback=300):
+    """S1..S3 supply (dari atas) & D1..D3 demand (dari bawah), strength = lebar poin."""
+    c = float(df["close"].iloc[-1])
+    highs, lows = _pivots(df, L, lookback)
+    sup = [{"top": p + 0.5 * a, "bottom": p - 0.5 * a, "price": p} for _, p in highs[-n_levels:]]
+    dem = [{"top": p + 0.5 * a, "bottom": p - 0.5 * a, "price": p} for _, p in lows[-n_levels:]]
+    sup = sorted(sup, key=lambda z: z["top"], reverse=True)   # S1 terdekat dari atas
+    dem = sorted(dem, key=lambda z: z["bottom"], reverse=True)  # D1 terdekat dari bawah
+    out = {"supply": [], "demand": []}
+    for i, z in enumerate(sup, 1):
+        out["supply"].append({"level": f"S{i}", "top": round(z["top"], 2),
+                              "bottom": round(z["bottom"], 2),
+                              "strength_pts": round(z["top"] - z["bottom"], 2),
+                              "dist_pts": round(z["bottom"] - c, 2)})
+    for i, z in enumerate(dem, 1):
+        out["demand"].append({"level": f"D{i}", "top": round(z["top"], 2),
+                              "bottom": round(z["bottom"], 2),
+                              "strength_pts": round(z["top"] - z["bottom"], 2),
+                              "dist_pts": round(c - z["top"], 2)})
+    return out
+
+
+# ----------------------------- Struktur -------------------------------------
+def structure_label(df, L=5):
+    """BULLISH/BEARISH + 'HH + HL STRUCTURE' seperti panel GODMODE."""
+    h, l = df["high"].to_numpy(), df["low"].to_numpy()
+    his, los = [], []
+    for p in range(L, len(df) - L):
+        if h[p] == h[p - L:p + L + 1].max():
+            his.append(h[p])
+        if l[p] == l[p - L:p + L + 1].min():
+            los.append(l[p])
+    hh = len(his) >= 2 and his[-1] > his[-2]
+    hl = len(los) >= 2 and los[-1] > los[-2]
+    lh = len(his) >= 2 and his[-1] < his[-2]
+    ll = len(los) >= 2 and los[-1] < los[-2]
+    if hh and hl:
+        return "BULLISH", "HH + HL STRUCTURE"
+    if lh and ll:
+        return "BEARISH", "LH + LL STRUCTURE"
+    if hh or hl:
+        return "BULLISH", "HH + HL STRUCTURE" if hh else "HL PENDING HH"
+    if lh or ll:
+        return "BEARISH", "LH + LL STRUCTURE" if ll else "LH PENDING LL"
+    return "RANGING", "RANGE — TUNGGU BREAK"
+
+
+def events_full(df, L=5, sweep_lookback=20, max_events=8):
+    """Event GODMODE: CHOCH/HH/HL/LH/SWEEP/TC dengan deskripsi persis ala panel."""
+    idx = df.index
+    rows = []
+    ev = structure_events(df, L)
+    for t in idx[ev["choch_bull"]]:
+        rows.append((t, float(df.loc[t, "close"]), "CHOCH",
+                     "Bearish-Bullish flip — LH broken upward", "UP"))
+    for t in idx[ev["choch_bear"]]:
+        rows.append((t, float(df.loc[t, "close"]), "CHOCH",
+                     "Bullish-Bearish flip — HL broken downward", "DOWN"))
+
+    h, l = df["high"].to_numpy(), df["low"].to_numpy()
+    last_hi = last_lo = None
+    trend = 0
+    for p in range(L, len(df) - L):
+        conf = idx[p + L]
+        if h[p] == h[p - L:p + L + 1].max():
+            if last_hi is not None:
+                if h[p] > h[last_hi]:
+                    rows.append((conf, float(h[p]), "HH", "Higher High — Last bullish swing high", "UP"))
+                elif h[p] < h[last_hi]:
+                    rows.append((conf, float(h[p]), "LH", "Lower High — Bearish resistance level", "DOWN"))
+            last_hi = p
+        if l[p] == l[p - L:p + L + 1].min():
+            if last_lo is not None:
+                if l[p] > l[last_lo]:
+                    rows.append((conf, float(l[p]), "HL", "Higher Low — Bullish support level", "UP"))
+                elif l[p] < l[last_lo]:
+                    rows.append((conf, float(l[p]), "LL", "Lower Low — Last bearish swing low", "DOWN"))
+            last_lo = p
+
+    prev_lo = df["low"].shift().rolling(sweep_lookback).min()
+    prev_hi = df["high"].shift().rolling(sweep_lookback).max()
+    sw_b = (df["low"] < prev_lo) & (df["close"] > prev_lo)
+    sw_s = (df["high"] > prev_hi) & (df["close"] < prev_hi)
+    for t in idx[sw_b].tolist()[-1:]:
+        rows.append((t, float(prev_lo.loc[t]), "SWEEP",
+                     f"Liquidity grabbed below {prev_lo.loc[t]:.2f} — bullish reversal signal", "UP"))
+    for t in idx[sw_s].tolist()[-1:]:
+        rows.append((t, float(prev_hi.loc[t]), "SWEEP",
+                     f"Liquidity grabbed above {prev_hi.loc[t]:.2f} — bearish reversal signal", "DOWN"))
+
+    # TC (trend change) dari choch: label kedua seperti panel GODMODE
+    for t in idx[ev["choch_bull"]]:
+        rows.append((t, float(df.loc[t, "close"]), "TC",
+                     "Bullish trend change — LL to HL structure flip", "UP"))
+    for t in idx[ev["choch_bear"]]:
+        rows.append((t, float(df.loc[t, "close"]), "TC",
+                     "Bearish trend change — HH to LH structure flip", "DOWN"))
+
+    rows.sort(key=lambda r: r[0])
+    return [{"time": str(t), "tag": tag, "price": round(price, 2), "desc": desc, "dir": d}
+            for t, price, tag, desc, d in rows[-max_events:]]
+
+
+# ----------------------------- Confluence GODMODE ---------------------------
+def confluence_godmode(df, df_htf, cfg, zones_multi, vol_flow):
+    """Skor 0-100: HTF 20 + Zone 20-30 + Sweep 20 + 2-Candle 20 + bonus konteks."""
+    from confluence_engine import htf_trend
+    trend = htf_trend(df, cfg, df_htf)
+    htf_dir = int(trend.iloc[-1])
+    c = float(df["close"].iloc[-1])
+
+    # zona terdekat (jarak dalam poin harga)
+    zm = zones_multi
+    a = float(atr_fn(df).iloc[-1])
+    at_supply = any(z["bottom"] <= c <= z["top"] for z in zm["supply"])
+    at_demand = any(z["bottom"] <= c <= z["top"] for z in zm["demand"])
+    near_supply = any(-0.6 * a <= z["dist_pts"] <= 0.5 * a for z in zm["supply"])
+    near_demand = any(-0.6 * a <= z["dist_pts"] <= 0.5 * a for z in zm["demand"])
+
+    # zona kuat -> bobot 30 (strength > 1 ATR), else 20
+    strong_zone = any(z["strength_pts"] > a for z in zm["supply"] + zm["demand"])
+    zone_pts = 30 if (strong_zone and (at_supply or at_demand or near_supply or near_demand)) \
+        else 20 if (at_supply or at_demand or near_supply or near_demand) else 0
+
+    # sweep dalam lookback
+    w = df.tail(cfg.sweep_lookback + 2)
+    prev_lo = df["low"].shift().rolling(cfg.sweep_lookback).min().iloc[-1]
+    prev_hi = df["high"].shift().rolling(cfg.sweep_lookback).max().iloc[-1]
+    sweep_bull = bool((w["low"] < prev_lo).any())
+    sweep_bear = bool((w["high"] > prev_hi).any())
+    sweep_ok = sweep_bull or sweep_bear
+
+    # 2-candle rejection
+    o, cl = df["open"].iloc[-1], df["close"].iloc[-1]
+    po, pcl = df["open"].iloc[-2], df["close"].iloc[-2]
+    two_bull = bool(cl > o and pcl < po and cl >= po)
+    two_bear = bool(cl < o and pcl > po and cl <= po)
+    two_ok = two_bull or two_bear
+
+    checks = [
+        {"label": f"HTF {cfg.htf.upper()} Trend",
+         "val": "BULLISH" if htf_dir == 1 else "BEARISH" if htf_dir == -1 else "RANGING",
+         "ok": htf_dir != 0, "pts": 20 if htf_dir != 0 else 0},
+        {"label": "Zone",
+         "val": "AT SUPPLY" if (at_supply or near_supply) else "AT DEMAND" if (at_demand or near_demand) else "NEUTRAL",
+         "ok": zone_pts > 0, "pts": zone_pts},
+        {"label": "Sweep",
+         "val": "BEARISH SWEEP" if sweep_bear else "BULLISH SWEEP" if sweep_bull else "WAITING",
+         "ok": sweep_ok, "pts": 20 if sweep_ok else 0},
+        {"label": "2-Candle",
+         "val": "CONFIRMED" if two_ok else "WAITING",
+         "ok": two_ok, "pts": 20 if two_ok else 0},
+    ]
+    base = sum(ch["pts"] for ch in checks)
+
+    # bonus konteks (fakta tersembunyi di GODMODE: skor 98 saat checklist 70)
+    struct, _ = structure_label(df, 5)
+    bonus = 0
+    if struct == "BULLISH" and htf_dir == 1:
+        bonus += 10
+    if struct == "BEARISH" and htf_dir == -1:
+        bonus += 10
+    buyers = vol_flow.get("buyers_pct", 50) if vol_flow else 50
+    if (htf_dir == 1 and buyers >= 60) or (htf_dir == -1 and buyers <= 40):
+        bonus += 8
+    bias = heatmap_bias(df)                    # bias MTF dari TF entry sendiri
+    if (htf_dir == 1 and bias == "BULL") or (htf_dir == -1 and bias == "BEAR"):
+        bonus += 10
+    score = min(100, base + bonus)
+    action = "EXECUTE" if score >= 75 else "MONITOR" if score >= 50 else "WAIT"
+    return {"score": score, "action": action, "checks": checks, "bonus": bonus,
+            "htf_dir": htf_dir, "at_supply": at_supply or near_supply,
+            "at_demand": at_demand or near_demand, "sweep_ok": sweep_ok,
+            "two_ok": two_ok}
+
+
+def heatmap_bias(df):
+    """Bias single-TF: BULL/BEAR/RANG dari stack EMA."""
+    c = df["close"]
+    e9, e20, e50 = ema(c, 9), ema(c, 20), ema(c, 50)
+    if e9.iloc[-1] > e20.iloc[-1] > e50.iloc[-1]:
+        return "BULL"
+    if e9.iloc[-1] < e20.iloc[-1] < e50.iloc[-1]:
+        return "BEAR"
+    return "RANG"
+
+
+# ----------------------------- Klasifikasi setup ----------------------------
+def classify_setup(cf, choch_recent, div_recent=False):
+    """Label setup ala track record GODMODE."""
+    aligned = cf["htf_dir"] != 0
+    if aligned and cf["sweep_ok"] and cf["two_ok"] and cf["score"] >= 90 and div_recent:
+        return "A+ SNIPER CID"
+    if aligned and cf["sweep_ok"] and (cf["at_supply"] or cf["at_demand"]) and cf["two_ok"]:
+        return "GOLDEN SETUP"
+    if aligned and (cf["at_supply"] or cf["at_demand"]):
+        return "HTF SNIPER ENTRY"
+    if choch_recent:
+        return "SWING REVERSAL"
+    return "STANDARD"
+
+
+def choch_recent(df, L=5, window=10):
+    ev = structure_events(df, L)
+    return bool((ev["choch_bull"] | ev["choch_bear"]).tail(window).any())
+
+
+def rsi_divergence_recent(df, L=5, window=15):
+    """Divergence RSI sederhana utk label A+ SNIPER CID."""
+    r = rsi(df["close"], 14)
+    l, h = df["low"].to_numpy(), df["high"].to_numpy()
+    rv = r.to_numpy()
+    n = len(df)
+    for p in range(max(L, n - window), n - L):
+        if l[p] == l[p - L:p + L + 1].min() and rv[p] > rv[p - L]:
+            return True
+        if h[p] == h[p - L:p + L + 1].max() and rv[p] < rv[p - L]:
+            return True
+    return False
+
+
+# ----------------------------- 2-Stage alert --------------------------------
+def two_stage(df, zones_multi):
+    """Stage 1 GET READY (harga menyentuh zona) -> Stage 2 VALID (rejection di zona)."""
+    c = float(df["close"].iloc[-1])
+    o, cl = df["open"].iloc[-1], df["close"].iloc[-1]
+    po, pcl = df["open"].iloc[-2], df["close"].iloc[-2]
+    in_supply = any(z["bottom"] <= c <= z["top"] for z in zones_multi["supply"])
+    in_demand = any(z["bottom"] <= c <= z["top"] for z in zones_multi["demand"])
+    reject_bull = cl > o and cl > po          # candle bull menutup di atas open sebelumnya
+    reject_bear = cl < o and cl < po
+    if in_demand:
+        return {"stage": 2, "label": "VALID SIGNAL (BUY)",
+                "detail": "Rejection di Demand terkonfirmasi"} if reject_bull else \
+               {"stage": 1, "label": "GET READY (BUY)",
+                "detail": "Harga di Demand — tunggu candle rejection"}
+    if in_supply:
+        return {"stage": 2, "label": "VALID SIGNAL (SELL)",
+                "detail": "Rejection di Supply terkonfirmasi"} if reject_bear else \
+               {"stage": 1, "label": "GET READY (SELL)",
+                "detail": "Harga di Supply — tunggu candle rejection"}
+    return {"stage": 0, "label": "SCANNING", "detail": "Harga di No Trade Zone (tengah range)"}
+
+
+# ----------------------------- Sesi pasar (WIB) -----------------------------
+SESSIONS = [
+    ("Asia (Tokyo / Sydney)", 6, 14, "Rendah", "Hindari, sinyal sedikit"),
+    ("London (Eropa)", 14, 19, "Tinggi", "Waktu terbaik untuk trading"),
+    ("New York (US Overlap)", 19, 3, "Sangat Tinggi", "Potensi besar, hati-hati"),
+    ("Rollover (Dini Hari)", 3, 6, "Rendah", "Spread lebar / volatilitas rendah"),
+]
+
+
+def session_info(now_utc=None):
+    """Sesi aktif dari jam UTC -> WIB (UTC+7)."""
+    now = pd.Timestamp.now(tz="UTC") if now_utc is None else pd.Timestamp(now_utc)
+    wib_hour = (now + pd.Timedelta(hours=7)).hour
+    for name, a, b, vol, rec in SESSIONS:
+        if a < b:
+            inside = a <= wib_hour < b
+        else:                                     # melewati tengah malam
+            inside = wib_hour >= a or wib_hour < b
+        if inside:
+            return {"session": name, "volatility": vol, "recommendation": rec,
+                    "wib_hour": wib_hour}
+    return {"session": "Antar-sesi", "volatility": "Rendah",
+            "recommendation": "Tunggu sesi London/NY", "wib_hour": wib_hour}
+
+
+# ----------------------------- AI reasoning ---------------------------------
+def ai_reasoning(df, zones_multi, two_stage_info, cf):
+    """Penjelasan ala panel AI ANALYSIS: SITUASI / KARENA / MAKA."""
+    cond, _, _ = market_condition(df)
+    c = float(df["close"].iloc[-1])
+    situasi = f"GOLDEN SMC: {'[TRENDING]' if cond == 'TRENDING' else '[SIDEWAYS]'} — harga {c:.2f}"
+    if two_stage_info["stage"] == 0:
+        karena = "Karena harga berada di tengah (No Trade Zone) dan belum ada pola manipulasi (Sweep) dari area Supply/Demand yang valid."
+        maka = "Maka STANDBY. Biarkan harga mendatangi zona institusional terlebih dahulu."
+    elif two_stage_info["stage"] == 1:
+        karena = f"Karena harga sudah menyentuh zona {two_stage_info['label'].split('(')[1][:-1]} namun belum ada rejection 2-candle."
+        maka = "Maka GET READY. Jangan entry dulu — tunggu candle rejection di dalam zona."
+    else:
+        sisi = two_stage_info["label"].split("(")[1][:-1]
+        karena = f"Karena rejection terkonfirmasi di zona {sisi} dan skor confluence {cf['score']}/100."
+        maka = f"Maka {cf['action']}. Eksekusi sesuai setup {two_stage_info['label']} dengan SL/TP dari engine."
+    return {"situasi": situasi, "karena": karena, "maka": maka}
+
+
+# ----------------------------- Forecast v5.0 --------------------------------
+def forecast(df, entry_hint=None):
+    """Proyeksi FORECAST: arah dari slope EMA20 + posisi vs EMA50;
+    TP1/TP2/TP3 = 1x/2x/3x ATR(14), SL = 1.5x ATR."""
+    c = df["close"]
+    e20, e50 = ema(c, 20), ema(c, 50)
+    slope = float(e20.iloc[-1] - e20.iloc[-5])
+    above = float(c.iloc[-1]) > float(e50.iloc[-1])
+    direction = "BULLISH" if (slope > 0 and above) else "BEARISH" if (slope < 0 and not above) else "NEUTRAL"
+    a = float(atr_fn(df).iloc[-1])
+    base = float(entry_hint if entry_hint is not None else c.iloc[-1])
+    if direction == "BEARISH":
+        levels = {"tp1": base - a, "tp2": base - 2 * a, "tp3": base - 3 * a, "sl": base + 1.5 * a}
+    else:
+        levels = {"tp1": base + a, "tp2": base + 2 * a, "tp3": base + 3 * a, "sl": base - 1.5 * a}
+    return {"direction": direction, "slope_ema20": round(slope, 4),
+            "above_ema50": above, "atr": round(a, 2), **{k: round(v, 2) for k, v in levels.items()}}
