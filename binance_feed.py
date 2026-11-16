@@ -22,10 +22,35 @@ import requests
 
 from confluence_engine import Config, generate_signals
 
-REST = {"spot": "https://api.binance.com/api/v3/klines",
-        "futures": "https://fapi.binance.com/fapi/v1/klines"}
-WS = {"spot": "wss://stream.binance.com:9443/ws",
-      "futures": "wss://fstream.binance.com/ws"}
+# Kandidat host: utama + fallback publik (data-api.binance.vision = endpoint
+# resmi khusus data pasar; berguna bila api.binance.com diblokir jaringan).
+# Bisa dioverride env AT_REST_BASE / AT_WS_BASE (URL lengkap klines / base WS).
+REST_CANDIDATES = {
+    "spot": ["https://api.binance.com/api/v3/klines",
+             "https://data-api.binance.vision/api/v3/klines"],
+    "futures": ["https://fapi.binance.com/fapi/v1/klines"],
+}
+WS_CANDIDATES = {
+    "spot": ["wss://stream.binance.com:9443/ws",
+             "wss://data-stream.binance.vision:9443/ws"],
+    "futures": ["wss://fstream.binance.com/ws"],
+}
+for _env, _cands in ((os.getenv("AT_REST_BASE"), REST_CANDIDATES),
+                     (os.getenv("AT_WS_BASE"), WS_CANDIDATES)):
+    if _env:
+        for _m in _cands:
+            _cands[_m].insert(0, _env.rstrip("/"))
+
+REST = {m: c[0] for m, c in REST_CANDIDATES.items()}      # kompatibilitas lama
+WS = {m: c[0] for m, c in WS_CANDIDATES.items()}
+_working_rest = {}                                        # host yang terbukti jalan
+
+
+def _rest_url(market):
+    """URL REST klines: pakai host yang sudah terbukti, kalau belum uji berurutan."""
+    if _working_rest.get(market):
+        return _working_rest[market]
+    return REST_CANDIDATES.get(market, REST_CANDIDATES["spot"])[0]
 
 INTERVAL_MS = {"1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000,
                "30m": 1_800_000, "1h": 3_600_000, "2h": 7_200_000,
@@ -56,17 +81,28 @@ def fetch_klines(symbol, interval, start_ms=None, end_ms=None, bars=None,
     if bars and not start_ms:
         start_ms = end_ms - bars * step
     out, cursor = [], start_ms
+    candidates = REST_CANDIDATES.get(market, REST_CANDIDATES["spot"])
+    ci = 0
 
     while True:
         params = {"symbol": symbol.upper(), "interval": interval, "limit": 1000,
                   "endTime": end_ms}
         if cursor is not None:
             params["startTime"] = cursor
-        r = requests.get(REST[market], params=params, timeout=15)
+        try:
+            url = _working_rest.get(market) or candidates[ci]
+            r = requests.get(url, params=params, timeout=15)
+        except requests.RequestException:
+            ci += 1
+            if ci >= len(candidates):
+                raise                                        # semua host gagal
+            print(f"[rest] fallback ke {candidates[ci]}", flush=True)
+            continue
         if r.status_code in (418, 429):                      # rate limit
             time.sleep(int(r.headers.get("Retry-After", 5)))
             continue
         r.raise_for_status()
+        _working_rest[market] = url
         rows = r.json()
         if not rows:
             break
@@ -182,9 +218,10 @@ class LiveFeed:
     async def run(self):
         import websockets                                    # impor lokal
         self.seed()
-        url = f"{WS[self.market]}/{self.symbol.lower()}@kline_{self.interval}"
-        backoff = 1
+        candidates = WS_CANDIDATES.get(self.market, WS_CANDIDATES["spot"])
+        wi, backoff = 0, 1
         while True:
+            url = f"{candidates[wi % len(candidates)]}/{self.symbol.lower()}@kline_{self.interval}"
             try:
                 async with websockets.connect(url, ping_interval=20, ping_timeout=30) as ws:
                     print(f"[ws] terhubung: {url}", flush=True)
@@ -194,7 +231,9 @@ class LiveFeed:
                         if data.get("e") == "kline":
                             self.handle_kline(data["k"])
             except (websockets.ConnectionClosed, OSError, asyncio.TimeoutError) as e:
-                print(f"[ws] putus ({e}); reconnect {backoff}s", flush=True)
+                wi += 1                                      # coba host berikutnya
+                print(f"[ws] putus ({e}); coba host#{wi % len(candidates) + 1} "
+                      f"dalam {backoff}s", flush=True)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 60)
                 try:

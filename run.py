@@ -272,7 +272,11 @@ async def main():
                 state.buffers[tf] = mf.feeds[tf].buf
             except Exception as e:
                 print(f"[seed] {tf} gagal: {e}", flush=True)
-        snap = build_snapshot(state.buffers, cfg, state.signals_log, state.label)
+        snap = build_snapshot(state.buffers, cfg, state.signals_log, state.label,
+                              view_tf=args.entry_tf, htf_tf=args.htf)
+        if snap:
+            snap["engine_entry"] = args.entry_tf
+            snap["exec_mode"] = executor.mode
         state.snapshot_data = snap
 
         async def live_loop():
