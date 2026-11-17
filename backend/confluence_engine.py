@@ -40,6 +40,7 @@ class Config:
     sweep_lookback: int = 20
     atr_pct_low: float = 0.20       # skip jika volatilitas terlalu rendah
     atr_pct_high: float = 0.95      # skip jika terlalu ekstrem
+    min_confluence: int = 4         # dari 4 gate (MOM/VP/PA/VOL) harus lolos; 4 = AND ketat lama
     atr_rank_window: int = 500
     cooldown: int = 10              # jeda antar sinyal (bar)
     risk_pct: float = 1.0           # % ekuitas per trade
@@ -203,8 +204,11 @@ def generate_signals(df, cfg=Config(), htf_df=None):
     atr_rank = d["atr"].rolling(cfg.atr_rank_window, min_periods=100).rank(pct=True)
     g_vol = (atr_rank >= cfg.atr_pct_low) & (atr_rank <= cfg.atr_pct_high)
 
-    long_ok = g_trend_l & g_mom_l & g_vp_l & g_pa_l & g_vol
-    short_ok = g_trend_s & g_mom_s & g_vp_s & g_pa_s & g_vol
+    # gabungan: TREND wajib; MOM/VP/PA/VOL cukup min_confluence dari 4 (default 4 = AND lama)
+    n_l = (g_mom_l.astype(int) + g_vp_l.astype(int) + g_pa_l.astype(int) + g_vol.astype(int))
+    n_s = (g_mom_s.astype(int) + g_vp_s.astype(int) + g_pa_s.astype(int) + g_vol.astype(int))
+    long_ok = g_trend_l & (n_l >= cfg.min_confluence)
+    short_ok = g_trend_s & (n_s >= cfg.min_confluence)
 
     # skor kualitas (bonus, bukan gate)
     score_l = (sw_bull.astype(int) + _recent(bull_div, w).astype(int)

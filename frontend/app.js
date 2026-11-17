@@ -660,6 +660,55 @@ function bindUI() {
   $("sel-exit").addEventListener("change", postSettings);
 
   setInterval(() => { $("sync-time").textContent = new Date().toTimeString().slice(0, 8); }, 1000);
+  loadResearch();
+}
+
+/* ---------- research report (static, dari cache/research_report.json) ---------- */
+function fmtP(v) { return v == null || Number.isNaN(v) ? "--" : Number(v).toFixed(3); }
+function fmtR(v) { return v == null || Number.isNaN(v) ? "--" : (v >= 0 ? "+" : "") + Number(v).toFixed(3) + "R"; }
+
+function renderResearch(rep) {
+  const sig = rep.significance || {};
+  const t = sig.trend || {};
+  const j = sig.joint || {};
+  const sigSig = t.p_value != null && t.p_value < 0.05;
+  $("rs-sig").innerHTML =
+    `<div class="rs-title">SIGNIFIKANSI (trend gate)</div>` +
+    `<div>Expectancy: <b>${fmtR(t.expectancy_R_real)}</b> vs baseline ${fmtR(t.baseline_mean_R)}</div>` +
+    `<div>p-value: <b>${fmtP(t.p_value)}</b> ${sigSig ? "(signifikan)" : "(TIDAK signifikan)"} · trades ${t.trades_real ?? "--"}</div>` +
+    `<div class="dim-text">Joint gate: trades ${j.trades_real ?? "--"}</div>`;
+
+  const mc = (rep.montecarlo || {}).trend_gate || {};
+  const boot = mc.bootstrap || {};
+  const dd = mc.drawdown || {};
+  $("rs-mc").innerHTML =
+    `<div class="rs-title">MONTE CARLO</div>` +
+    `<div>E[R] 95% CI: <b>${fmtR(boot.ci95_low_R)}</b> .. <b>${fmtR(boot.ci95_high_R)}</b></div>` +
+    `<div>P(E≤0): <b>${fmtP(boot.p_expectancy_le_0)}</b></div>` +
+    `<div>DD median / worst: <b>${dd["maxdd_median_%"]}%</b> / <b>${dd["maxdd_worst_%"]}%</b></div>`;
+
+  $("rs-risk").innerHTML =
+    `<div class="rs-title">RISK GATE</div>` +
+    `<div class="dim-text">Status live ada di panel eksekutor; laporan ini tidak memuat state real-time.</div>`;
+
+  const ml = rep.ml_gate || {};
+  const mlLine = ml.note
+    ? `<div class="dim-text">${ml.note}</div>`
+    : `<div>AUC test: <b>${fmtP(ml.auc_test)}</b> · base win: ${fmtP(ml.base_win_test)} · n test ${ml.n_test ?? "--"}</div>` +
+      `<div class="dim-text">Sampel kecil, belum bisa disimpulkan edge.</div>`;
+  $("rs-ml").innerHTML = `<div class="rs-title">ML GATE</div>${mlLine}`;
+
+  $("rs-age").textContent = rep.generated_at ? rep.generated_at.slice(0, 16).replace("T", " ") : "--";
+}
+
+async function loadResearch() {
+  try {
+    const r = await fetch("/api/research");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    renderResearch(await r.json());
+  } catch (e) {
+    $("rs-sig").innerHTML = `<div class="dim-text">Laporan belum tersedia: jalankan <code>python -m backend.research_report</code></div>`;
+  }
 }
 
 async function restoreMode() {

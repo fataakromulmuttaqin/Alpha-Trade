@@ -45,7 +45,7 @@ class PaperOrder:
 
 class TestnetExecutor:
     def __init__(self, market="spot", mode=None, api_key=None, api_secret=None,
-                 risk_pct=1.0):
+                 risk_pct=1.0, risk=None):
         self.market = market if market in BASE else "spot"
         env_mode = (os.getenv("EXECUTION_MODE") or "off").lower()
         self.mode = (mode or env_mode).lower()
@@ -55,6 +55,7 @@ class TestnetExecutor:
         self.api_key = api_key or os.getenv("BINANCE_TESTNET_API_KEY")
         self.api_secret = api_secret or os.getenv("BINANCE_TESTNET_API_SECRET")
         self.risk_pct = risk_pct
+        self.risk = risk
         self.paper = PaperOrder()
         self._step = None                                   # LOT_SIZE stepSize
         if self.mode == "testnet" and not (self.api_key and self.api_secret):
@@ -135,6 +136,12 @@ class TestnetExecutor:
         entry = float(entry_price if entry_price is not None else row["entry"])
         sl = float(row["sl"])
         eq = self.equity() or 10_000.0
+        if self.risk:
+            self.risk.begin_day(eq)
+            ok, why = self.risk.check(eq)
+            if not ok:
+                print(f"[risk] entry ditolak: {why}", flush=True)
+                return None
         units = position_size(eq, entry, sl, risk_pct=self.risk_pct)
         if units <= 0:
             print("[exec] ukuran posisi 0 — dilewati")
@@ -142,7 +149,10 @@ class TestnetExecutor:
         print(f"[exec] mode={self.mode} {symbol} {SIDE[d]} qty={units:.4f} "
               f"(equity {eq:.2f}, risk {self.risk_pct}%)", flush=True)
         try:
-            return self.market_order(symbol, SIDE[d], units)
+            res = self.market_order(symbol, SIDE[d], units)
+            if res and self.risk:
+                self.risk.on_entry()
+            return res
         except Exception as e:
             print("[exec] order gagal:", e)
             return None

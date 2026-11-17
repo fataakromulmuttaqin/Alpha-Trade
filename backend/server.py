@@ -83,6 +83,12 @@ class DashboardServer:
                     return self._json({"tf": tf, "candles": rows})
                 if u.path == "/api/signals":
                     return self._json(srv.state.signals())
+                if u.path == "/api/research":
+                    rp = os.path.join("cache", "research_report.json")
+                    if not os.path.isfile(rp):
+                        return self._json({"error": "belum ada laporan; jalankan backend.research_report"}, 503)
+                    with open(rp, encoding="utf-8") as f:
+                        return self._json(json.load(f))
                 # static file
                 path = u.path
                 if path == "/":
