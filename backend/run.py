@@ -41,6 +41,7 @@ class AppState:
         self.sensitivity = "golden"                  # preset mode aktif
         self.exit_protocol = "quick"
         self.demo = False
+        self.deep_history = {}                       # tf -> df history tradoor (chart ALL)
         self._view_cache = {}                        # view_tf -> (ts, snap)
 
     # ---- dipakai DashboardServer
@@ -82,10 +83,18 @@ class AppState:
         return out
 
     def candles(self, tf, limit=1500):
+        """Candle untuk chart: gabung history tradoor (deep) + buffer realtime."""
         df = self.buffers.get(tf)
-        if df is None or df.empty:
+        deep = self.deep_history.get(tf)
+        if (df is None or df.empty) and (deep is None or deep.empty):
             return None
-        d = df.tail(limit)
+        if deep is not None and len(deep):
+            if df is None or df.empty:
+                d = deep.tail(limit)
+            else:
+                d = pd.concat([deep, df[~df.index.isin(deep.index)]]).sort_index().tail(limit)
+        else:
+            d = df.tail(limit)
         ms = INTERVAL_MS[tf]
         return [[int(t.timestamp() * 1000), round(float(r["open"]), 2),
                  round(float(r["high"]), 2), round(float(r["low"]), 2),
@@ -161,6 +170,27 @@ class AppState:
                   f"{entry['side']} entry={entry['entry']} sl={entry['sl']} "
                   f"tp1={entry['tp1']} tp2={entry['tp2']} skor={entry['score']}", flush=True)
             self.executor.execute_signal(self.symbol, row)   # no-op saat mode off
+
+
+def load_tradoor_history(source, market, tfs, caps=None):
+    """Muat history dalam dari data tradoor (TDC1) untuk chart: decode 1m
+    sekali, lalu resample per TF. Return {tf: DataFrame}."""
+    from .tradoor_feed import load_market, INTERVAL_MIN
+    caps = caps or {"1m": 200_000, "5m": 150_000, "15m": 150_000,
+                    "30m": 100_000, "1h": 60_000, "4h": 30_000, "1d": 10_000}
+    df1m = load_market(source, market, "1m", bars=10**9)
+    if df1m.empty:
+        return {}
+    out = {}
+    for tf in tfs:
+        if tf == "1m":
+            out[tf] = df1m.tail(caps["1m"])
+            continue
+        agg = {"open": "first", "high": "max", "low": "min", "close": "last",
+               "volume": "sum"}
+        r = df1m.resample(f"{INTERVAL_MIN[tf]}min").agg(agg).dropna(subset=["close"])
+        out[tf] = r.tail(caps.get(tf, 100_000))
+    return out
 
 
 # ----------------------------- Demo feed ------------------------------------
@@ -307,6 +337,20 @@ async def main():
                            state.on_candle(tf, buf)),
                        cache_dir="cache", provider=args.provider)
         os.makedirs("cache", exist_ok=True)
+
+        # history dalam dari data tradoor (opsional): chart bisa tampil bertahun-tahun,
+        # sementara engine tetap memakai buffer ringan dari feed realtime.
+        if args.tradoor_data:
+            try:
+                tmarket = args.tradoor_market or (
+                    f"{'binance-perp' if args.market == 'futures' else 'binance'}:{args.symbol}")
+                deep = load_tradoor_history(args.tradoor_data, tmarket, tfs)
+                state.deep_history = deep
+                if deep:
+                    ringkas = ", ".join(f"{tf}:{len(d)}" for tf, d in deep.items())
+                    print(f"[history] tradoor dimuat ({tmarket}): {ringkas}", flush=True)
+            except Exception as e:
+                print(f"[history] tradoor gagal dimuat: {e}", flush=True)
 
         # seed awal langsung tersedia untuk dashboard sebelum candle pertama close
         for tf in mf.feeds:

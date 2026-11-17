@@ -12,7 +12,7 @@ const state = {
   cvdSeries: null, markersApi: null,
   toggles: {},
   audioCtx: null, lastSigKey: null, lastStage: -1,
-  barCount: 80,
+  barCount: 80, chartLimit: 20000,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -47,8 +47,9 @@ function initChart() {
   setupCanvas();
 }
 
-async function loadCandles(tf) {
-  const r = await fetch(`/api/candles?tf=${tf}&limit=1500`);
+async function loadCandles(tf, limitOverride) {
+  const limit = limitOverride || state.chartLimit || 1500;
+  const r = await fetch(`/api/candles?tf=${tf}&limit=${limit}`);
   if (!r.ok) { console.warn("candles", tf, "tidak tersedia"); return false; }
   const j = await r.json();
   state.candles = j.candles;
@@ -612,6 +613,11 @@ function bindUI() {
     document.querySelectorAll(".bars-btn").forEach(x => x.classList.remove("on"));
     b.classList.add("on");
     state.barCount = parseInt(b.dataset.bars, 10);
+    // ALL: tarik seluruh history (deep history tradoor) sekali, lalu tampilkan
+    if (state.barCount === 0 && (state.chartLimit || 0) < 200000) {
+      state.chartLimit = 200000;
+      if (state.activeTf) { loadCandles(state.activeTf); return; }
+    }
     fitBars();
   }));
   document.querySelectorAll(".toggle").forEach(b => b.addEventListener("click", () => {
