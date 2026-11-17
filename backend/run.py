@@ -19,6 +19,7 @@ import pandas as pd
 from .analytics import build_snapshot
 from .binance_feed import MultiFeed, INTERVAL_MS
 from .confluence_engine import Config, generate_signals
+from .paper_sim import PaperSim
 from .server import DashboardServer
 from .testnet_executor import TestnetExecutor
 from .tradoor_feed import TradoorFeed
@@ -45,6 +46,7 @@ class AppState:
         self.suppressed = []                         # sinyal yang disaring filter
         self.demo = False
         self.deep_history = {}                       # tf -> df history tradoor (chart ALL)
+        self.sim = PaperSim()                        # simulasi eksekusi internal
         self._view_cache = {}                        # view_tf -> (ts, snap)
 
     # ---- dipakai DashboardServer
@@ -141,6 +143,11 @@ class AppState:
             return                                       # engine butuh warm-up
 
         async with self.lock:
+            # simulator: proses candle yang baru close (hit SL/TP1/TP2/timeout)
+            last_row = buf.iloc[-1]
+            self.sim.on_candle(buf.index[-1], float(last_row["open"]),
+                               float(last_row["high"]), float(last_row["low"]),
+                               float(last_row["close"]))
             sig = generate_signals(buf, self.cfg, htf_df=htf_buf)
             self._handle_new_signals(sig)
             snap = build_snapshot(dict(self.buffers), self.cfg, self.signals_log,
@@ -179,6 +186,8 @@ class AppState:
             }
             snap["mode"] = {"sensitivity": self.sensitivity,
                             "exit_protocol": self.exit_protocol}
+            snap["sim"] = {"stats": self.sim.summary(),
+                           "trades": self.sim.snapshot_list(20)}
         return snap
 
     def recompute_signal_history(self, bars=25_000):
@@ -279,6 +288,10 @@ class AppState:
             entry["kind"] = kind
             self.signals_log.insert(0, entry)
             self.signals_log = self.signals_log[:30]
+            # simulasi internal: antre entry di open candle berikutnya
+            self.sim.queue_signal(t, row["signal"], entry["entry"], entry["sl"],
+                                  entry["tp1"], entry["tp2"],
+                                  mode=self.sensitivity, kind=kind)
             print(f"[sinyal] {kind} {entry['time']} {self.label} {entry['tf']} "
                   f"{entry['side']} entry={entry['entry']} sl={entry['sl']} "
                   f"tp1={entry['tp1']} tp2={entry['tp2']} skor={entry['score']}", flush=True)
@@ -338,6 +351,56 @@ def seed_last_signal(state, deep_bars=50_000):
               f"{t} entry={state.signals_log[0]['entry']}", flush=True)
     except Exception as e:
         print("[boot] seed sinyal history gagal:", e, flush=True)
+
+
+def sim_replay(state, bars=25_000):
+    """Putar ulang history melalui simulator internal dengan config mode
+    aktif — kartu SIMULASI TRADING langsung berisi hasil nyata. Bila mode
+    aktif menghasilkan 0 trade, ulangi dengan mode standard (berlabel)."""
+    from .paper_sim import PaperSim
+
+    def _src():
+        import pandas as pd
+        hist = state.buffers.get(state.entry_tf)
+        deep = state.deep_history.get(state.entry_tf)
+        if deep is not None and len(deep):
+            extra = hist[~hist.index.isin(deep.index)] if hist is not None and len(hist) else None
+            return pd.concat([deep, extra]) if extra is not None else deep
+        return hist
+
+    def _replay(cfg, mode_label):
+        src = _src()
+        if src is None or len(src) < 300:
+            return 0
+        src = src.tail(bars)
+        htf_buf = state.buffers.get(state.htf)
+        sig = generate_signals(src, cfg, htf_df=htf_buf)
+        sig_times = set(sig.index)
+        state.sim.trades, state.sim.open, state.sim.pending = [], [], None
+        state.sim.equity = PaperSim().equity
+        for t, row in src.iterrows():
+            state.sim.on_candle(t, row["open"], row["high"], row["low"], row["close"])
+            if t in sig_times:
+                r = sig.loc[t]
+                state.sim.queue_signal(t, int(r["signal"]), float(r["entry"]),
+                                       float(r["sl"]), float(r["tp1"]), float(r["tp2"]),
+                                       mode=mode_label, kind=state._classify(int(r["score"])))
+        return len(state.sim.trades)
+
+    try:
+        n = _replay(state.cfg, state.sensitivity)
+        replay_mode = state.sensitivity
+        if n == 0:
+            from .confluence_engine import Config as _C
+            from .godmode_engine import apply_mode as _am
+            cfg_std = _am(_C(), sensitivity="standard",
+                          exit_protocol=state.exit_protocol)
+            n = _replay(cfg_std, "standard (replay)")
+            replay_mode = "standard (replay)"
+        print(f"[sim] replay {bars} bar selesai: {n} trade "
+              f"(mode replay: {replay_mode})", flush=True)
+    except Exception as e:
+        print("[sim] replay gagal:", e, flush=True)
 
 
 # ----------------------------- Demo feed ------------------------------------
@@ -508,6 +571,7 @@ async def main():
             except Exception as e:
                 print(f"[seed] {tf} gagal: {e}", flush=True)
         seed_last_signal(state)                          # isi log dulu (fallback RR)
+        sim_replay(state)                                # isi kartu SIMULASI dengan hasil replay
         snap = build_snapshot(state.buffers, cfg, state.signals_log, state.label,
                               view_tf=args.entry_tf, htf_tf=args.htf)
         if snap:

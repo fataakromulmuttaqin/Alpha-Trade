@@ -25,3 +25,4 @@ _*.py
 
 # data tradoor (backfill)
 tradoor-data/
+sim_trades.json

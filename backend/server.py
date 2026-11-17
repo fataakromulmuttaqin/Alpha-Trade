@@ -83,6 +83,9 @@ class DashboardServer:
                     return self._json({"tf": tf, "candles": rows})
                 if u.path == "/api/signals":
                     return self._json(srv.state.signals())
+                if u.path == "/api/sim":
+                    return self._json({"stats": srv.state.sim.summary(),
+                                       "trades": srv.state.sim.snapshot_list(50)})
                 if u.path == "/api/research":
                     rp = os.path.join(PROJECT_ROOT, "cache", "research_report.json")
                     if not os.path.isfile(rp):
