@@ -239,3 +239,5 @@ button { cursor: pointer; font-family: inherit; }
   .stat-row { grid-template-columns: repeat(3, 1fr); }
   .main-grid, .bottom-grid { grid-template-columns: 1fr; }
 }
+
+.mode-red { color: var(--red); border-color: var(--red); background: var(--red-soft); font-weight: 800; }

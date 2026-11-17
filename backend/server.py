@@ -123,6 +123,7 @@ class DashboardServer:
                 except Exception:
                     return self._json({"error": "body JSON tidak valid"}, 400)
                 result = srv.state.apply_settings(body)
+                srv.state.rebuild_and_broadcast()       # dashboard langsung update
                 return self._json(result)
 
         return H

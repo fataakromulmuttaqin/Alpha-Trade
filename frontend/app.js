@@ -403,6 +403,33 @@ function renderSnapshot(snap) {
   $("highrisk-state").textContent = snap.high_risk.state;
   $("highrisk-sub").textContent = snap.high_risk.sub;
 
+  /* filter sinyal (SIGNAL GOLDEN / SIGNAL HIGH RISK) — fungsional di backend */
+  const flt = snap.filters || { golden: true, high_risk: false, suppressed: [], suppressed_count: 0 };
+  const cg = $("chip-golden"), ch = $("chip-highrisk");
+  cg.textContent = `SIGNAL GOLDEN: ${flt.golden ? "ON" : "OFF"}`;
+  cg.classList.toggle("mode-gold", flt.golden);
+  cg.classList.toggle("mode-dim", !flt.golden);
+  ch.textContent = `SIGNAL HIGH RISK: ${flt.high_risk ? "ON" : "OFF"}`;
+  ch.classList.toggle("mode-red", flt.high_risk);
+  ch.classList.toggle("mode-dim", !flt.high_risk);
+  /* kartu ikut filter + info sinyal yang disaring */
+  if (!flt.golden) {
+    $("golden-state").textContent = "OFF";
+    $("golden-sub").textContent = "GOLDEN OFF — sinyal skor tinggi disaring";
+  } else {
+    $("golden-sub").textContent = "GET READY (GOLDEN)";
+  }
+  if (!flt.high_risk) {
+    const n = flt.suppressed_count || 0;
+    const lastSup = (flt.suppressed || [])[0];
+    $("highrisk-state").textContent = "FILTERED";
+    $("highrisk-sub").textContent = n
+      ? `HIGH RISK OFF — ${n} disaring; terakhir ${lastSup.side} ${fmt(lastSup.entry)}`
+      : "HIGH RISK OFF — sinyal skor rendah disaring";
+  } else {
+    $("highrisk-sub").textContent = "HIGH RISK ON — sinyal skor rendah dieksekusi";
+  }
+
   /* confluence */
   const cf = snap.confluence;
   $("conf-level").textContent = cf.confidence >= 75 ? "HIGH" : cf.confidence >= 50 ? "MED" : "LOW";
@@ -687,14 +714,18 @@ function bindUI() {
   $("jr-reset").addEventListener("click", () => saveJournal({ wins: 0, losses: 0 }));
 
   /* selector mode -> backend */
-  const postSettings = () => {
-    fetch("/api/settings", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sensitivity: $("sel-sensitivity").value, exit_protocol: $("sel-exit").value }),
-    }).then(r => r.json()).then(j => console.log("settings", j)).catch(() => {});
-  };
-  $("sel-sensitivity").addEventListener("change", postSettings);
-  $("sel-exit").addEventListener("change", postSettings);
+  $("sel-sensitivity").addEventListener("change", () => postSettingsBody());
+  $("sel-exit").addEventListener("change", () => postSettingsBody());
+
+  /* chip filter sinyal — fungsional: mengubah analisis di backend */
+  $("chip-golden").addEventListener("click", () => {
+    const on = !$("chip-golden").textContent.includes("ON");
+    postSettingsBody({ signal_golden: on });
+  });
+  $("chip-highrisk").addEventListener("click", () => {
+    const on = $("chip-highrisk").textContent.includes("OFF");
+    postSettingsBody({ signal_high_risk: on });
+  });
 
   setInterval(() => { $("sync-time").textContent = new Date().toTimeString().slice(0, 8); }, 1000);
   loadResearch();
@@ -753,7 +784,33 @@ async function restoreMode() {
     const h = await (await fetch("/api/health")).json();
     if (h.sensitivity) $("sel-sensitivity").value = h.sensitivity;
     if (h.exit_protocol) $("sel-exit").value = h.exit_protocol;
+    setSignalChip("chip-golden", "SIGNAL GOLDEN", !!h.signal_golden);
+    setSignalChip("chip-highrisk", "SIGNAL HIGH RISK", !!h.signal_high_risk);
   } catch (e) {}
+}
+
+/* chip SIGNAL GOLDEN / SIGNAL HIGH RISK: toggle + kirim ke backend */
+function setSignalChip(id, label, on) {
+  const b = $(id);
+  b.textContent = `${label}: ${on ? "ON" : "OFF"}`;
+  b.classList.toggle("mode-gold", on && id === "chip-golden");
+  b.classList.toggle("mode-red", on && id === "chip-highrisk");
+  b.classList.toggle("mode-dim", !on);
+}
+function postSettingsBody(extra = {}) {
+  return fetch("/api/settings", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sensitivity: $("sel-sensitivity").value,
+      exit_protocol: $("sel-exit").value,
+      ...extra,
+    }),
+  }).then(r => r.json()).then(j => {
+    if (j.signal_golden !== undefined) setSignalChip("chip-golden", "SIGNAL GOLDEN", j.signal_golden);
+    if (j.signal_high_risk !== undefined) setSignalChip("chip-highrisk", "SIGNAL HIGH RISK", j.signal_high_risk);
+    // snapshot diperbarui server (rebuild+broadcast); segarkan panel lokal
+    return fetch("/api/snapshot").then(r => r.json()).then(s => { renderSnapshot(s); return j; });
+  }).catch(() => {});
 }
 
 /* ============================== BOOT ============================== */

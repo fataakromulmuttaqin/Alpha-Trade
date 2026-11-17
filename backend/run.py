@@ -40,6 +40,9 @@ class AppState:
         self.lock = asyncio.Lock()
         self.sensitivity = "golden"                  # preset mode aktif
         self.exit_protocol = "quick"
+        self.signal_golden = True                    # SIGNAL GOLDEN: ON/OFF
+        self.signal_high_risk = False                # SIGNAL HIGH RISK: ON/OFF
+        self.suppressed = []                         # sinyal yang disaring filter
         self.demo = False
         self.deep_history = {}                       # tf -> df history tradoor (chart ALL)
         self._view_cache = {}                        # view_tf -> (ts, snap)
@@ -60,11 +63,12 @@ class AppState:
             snap["exec_mode"] = self.executor.mode
             snap["engine_entry"] = self.entry_tf
             snap["view_only"] = True
+            self._decorate(snap)
             self._view_cache[view_tf] = (time.time(), snap)
         return snap
 
     def apply_settings(self, body):
-        """POST /api/settings: sensitivity + exit_protocol -> preset Config."""
+        """POST /api/settings: sensitivity, exit_protocol, filter sinyal."""
         from .godmode_engine import apply_mode
         out = {"applied": []}
         sens = body.get("sensitivity")
@@ -77,8 +81,16 @@ class AppState:
             self.exit_protocol = ex
             apply_mode(self.cfg, exit_protocol=ex)
             out["applied"].append("exit:" + ex)
+        if "signal_golden" in body:
+            self.signal_golden = bool(body["signal_golden"])
+            out["applied"].append(f"signal_golden:{self.signal_golden}")
+        if "signal_high_risk" in body:
+            self.signal_high_risk = bool(body["signal_high_risk"])
+            out["applied"].append(f"signal_high_risk:{self.signal_high_risk}")
         out["sensitivity"] = self.sensitivity
         out["exit_protocol"] = self.exit_protocol
+        out["signal_golden"] = self.signal_golden
+        out["signal_high_risk"] = self.signal_high_risk
         print(f"[settings] {out}", flush=True)
         return out
 
@@ -107,6 +119,7 @@ class AppState:
     def health(self):
         return {"ok": True, "symbol": self.label, "mode": self.executor.mode,
                 "sensitivity": self.sensitivity, "exit_protocol": self.exit_protocol,
+                "signal_golden": self.signal_golden, "signal_high_risk": self.signal_high_risk,
                 "tfs": list(self.buffers), "bars": {t: len(b) for t, b in self.buffers.items()},
                 "clients": len(self.server.clients) if self.server else 0}
 
@@ -137,6 +150,7 @@ class AppState:
                 snap["demo"] = demo
                 snap["exec_mode"] = self.executor.mode
                 snap["engine_entry"] = self.entry_tf
+            snap = self._decorate(snap)
             self.snapshot_data = snap
             self._view_cache.clear()          # snapshot TF lain ikut basi
 
@@ -149,6 +163,40 @@ class AppState:
                            float(last["open"]), float(last["high"]),
                            float(last["low"]), float(last["close"]),
                            float(last["volume"])]})
+
+    def _classify(self, score):
+        """GODMODE: skor engine 0-4 -> GOLDEN (>=3) / HIGH RISK (<=2)."""
+        return "GOLDEN" if score >= 3 else "HIGH RISK"
+
+    def _decorate(self, snap):
+        """Tempelkan state filter sinyal + daftar sinyal tersaring ke snapshot."""
+        if snap is not None:
+            snap["filters"] = {
+                "golden": self.signal_golden,
+                "high_risk": self.signal_high_risk,
+                "suppressed": self.suppressed[:10],
+                "suppressed_count": len(self.suppressed),
+            }
+        return snap
+
+    def rebuild_and_broadcast(self):
+        """Bangun ulang snapshot dengan state terbaru (mis. setelah ubah filter)
+        dan broadcast ke semua klien dashboard."""
+        try:
+            snap = build_snapshot(dict(self.buffers), self.cfg, self.signals_log,
+                                  symbol=self.label, view_tf=self.entry_tf,
+                                  htf_tf=self.htf)
+            if snap:
+                snap["demo"] = self.demo
+                snap["exec_mode"] = self.executor.mode
+                snap["engine_entry"] = self.entry_tf
+                self._decorate(snap)
+            self.snapshot_data = snap
+            self._view_cache.clear()
+            if self.server:
+                self.server.broadcast_threadsafe({"type": "snapshot", "data": snap})
+        except Exception as e:
+            print("[settings] rebuild snapshot gagal:", e, flush=True)
 
     def _handle_new_signals(self, sig):
         if sig.empty:
@@ -164,9 +212,22 @@ class AppState:
                      "tp1": round(float(row["tp1"]), 2),
                      "tp2": round(float(row["tp2"]), 2),
                      "score": int(row["score"])}
+            kind = self._classify(entry["score"])
+            allowed = (kind == "GOLDEN" and self.signal_golden) or \
+                      (kind == "HIGH RISK" and self.signal_high_risk)
+            if not allowed:
+                # disaring: tetap tercatat untuk analisis, tidak dieksekusi
+                entry["kind"] = kind
+                self.suppressed.insert(0, entry)
+                self.suppressed = self.suppressed[:30]
+                print(f"[sinyal disaring] {kind} {entry['side']} {entry['time']} "
+                      f"entry={entry['entry']} skor={entry['score']} "
+                      f"(SIGNAL {kind}: OFF)", flush=True)
+                continue
+            entry["kind"] = kind
             self.signals_log.insert(0, entry)
             self.signals_log = self.signals_log[:30]
-            print(f"[sinyal] {entry['time']} {self.label} {entry['tf']} "
+            print(f"[sinyal] {kind} {entry['time']} {self.label} {entry['tf']} "
                   f"{entry['side']} entry={entry['entry']} sl={entry['sl']} "
                   f"tp1={entry['tp1']} tp2={entry['tp2']} skor={entry['score']}", flush=True)
             self.executor.execute_signal(self.symbol, row)   # no-op saat mode off
@@ -212,15 +273,16 @@ def seed_last_signal(state, deep_bars=50_000):
         if sig.empty:
             return
         t, row = sig.index[-1], sig.iloc[-1]
+        kind = "GOLDEN" if int(row["score"]) >= 3 else "HIGH RISK"
         state.signals_log = [{
             "time": t.isoformat(), "tf": state.entry_tf,
             "side": "LONG" if row["signal"] == 1 else "SHORT",
             "entry": round(float(row["entry"]), 2), "sl": round(float(row["sl"]), 2),
             "tp1": round(float(row["tp1"]), 2), "tp2": round(float(row["tp2"]), 2),
-            "score": int(row["score"]),
+            "score": int(row["score"]), "kind": kind,
         }]
         state._last_sig_time = t
-        print(f"[boot] sinyal terakhir (history): {state.signals_log[0]['side']} "
+        print(f"[boot] sinyal terakhir (history): {kind} {state.signals_log[0]['side']} "
               f"{t} entry={state.signals_log[0]['entry']}", flush=True)
     except Exception as e:
         print("[boot] seed sinyal history gagal:", e, flush=True)
@@ -351,6 +413,7 @@ async def main():
         if snap:
             snap["engine_entry"] = args.entry_tf
             snap["exec_mode"] = executor.mode
+        state._decorate(snap)
         state.snapshot_data = snap
 
         async def tradoor_loop():
@@ -398,6 +461,7 @@ async def main():
         if snap:
             snap["engine_entry"] = args.entry_tf
             snap["exec_mode"] = executor.mode
+        state._decorate(snap)
         state.snapshot_data = snap
 
         async def live_loop():
