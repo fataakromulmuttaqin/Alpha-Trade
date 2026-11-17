@@ -52,13 +52,81 @@ BYBIT_INTERVAL = {"1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
                   "1h": "60", "2h": "120", "4h": "240", "6h": "360",
                   "12h": "720", "1d": "D"}
 
-# Provider terakhir (gratis, tanpa key): Yahoo Finance chart API.
+# Provider cadangan: Yahoo Finance via raw chart API (fallback akhir).
 # Punya emas asli (GC=F = futures COMEX) — relevan untuk XAUUSD.
 YAHOO_REST = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
 YAHOO_INTERVAL = {"1m": "1m", "3m": "2m", "5m": "5m", "15m": "15m", "30m": "30m",
                   "1h": "60m"}
 YAHOO_RANGE = {"1m": "5d", "3m": "7d", "5m": "10d", "15m": "30d", "30m": "60d",
                "1h": "120d"}
+
+# Provider yfinance — library resmi (pip install yfinance).
+# Lebih stabil daripada raw chart API, punya GC=F & simbol Yahoo lainnya.
+# Interval native yfinance; 4h & 2h di-resample dari 1h.
+YFINANCE_INTERVAL = {
+    "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+    "1h": "1h", "2h": "1h", "4h": "1h",
+}
+YFINANCE_PERIOD = {
+    "1m": "7d",   # 1m max 7 hari di yfinance
+    "5m": "60d", "15m": "60d", "30m": "60d",
+    "1h": "730d", "2h": "730d", "4h": "730d",
+}
+
+
+def _yf_symbol(symbol):
+    """PAXGUSDT -> PAXG-USD; GC=F / BTC-USD dipakai apa adanya."""
+    s = symbol.upper()
+    if "=" in s or "-" in s:
+        return s
+    return s[:-4] + "-USD" if s.endswith("USDT") else s
+
+
+def _yfinance_df(symbol, interval, bars):
+    """OHLCV via library yfinance -> DataFrame format feed.
+    Interval 4h & 2h di-resample dari 1h (yfinance tidak punya native 4h)."""
+    try:
+        import yfinance as yf
+    except ImportError:
+        print("[yfinance] library tidak terpasang — pip install yfinance", flush=True)
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume", "close_time"])
+
+    ys = _yf_symbol(symbol)
+    yiv = YFINANCE_INTERVAL.get(interval, "1h")
+    period = YFINANCE_PERIOD.get(interval, "60d")
+    now_ms = int(time.time() * 1000)
+
+    ticker = yf.Ticker(ys)
+    raw = ticker.history(period=period, interval=yiv, auto_adjust=True, prepost=False)
+
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume", "close_time"])
+
+    # Normalisasi kolom & index -> UTC
+    raw.columns = [c.lower() for c in raw.columns]
+    df = raw[["open", "high", "low", "close", "volume"]].copy()
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("UTC")
+    else:
+        df.index = df.index.tz_convert("UTC")
+    df.index.name = "time"
+
+    # Resample jika interval native yfinance berbeda (mis. 4h dari 1h)
+    if YFINANCE_INTERVAL.get(interval, interval) != interval:
+        rule = {"2h": "2h", "4h": "4h"}.get(interval, interval)
+        df = df.resample(rule).agg({
+            "open": "first", "high": "max", "low": "min",
+            "close": "last", "volume": "sum"
+        }).dropna()
+
+    step_ms = INTERVAL_MS.get(interval, 60_000)
+    df["close_time"] = (
+        df.index.astype("int64") // 10 ** 6 + step_ms - 1
+    ).astype("int64")
+
+    # Buang candle yang belum close (candle berjalan)
+    df = df[df["close_time"] < now_ms]
+    return df.tail(bars)
 
 
 def _yahoo_symbol(symbol):
@@ -198,8 +266,12 @@ def fetch_klines(symbol, interval, start_ms=None, end_ms=None, bars=None,
                     print("[rest] Binance tidak terjangkau, coba Bybit...", flush=True)
                     return _bybit_klines_df(symbol, interval, start_ms, end_ms)
                 except Exception as e1:
-                    print(f"[rest] Bybit gagal ({e1.__class__.__name__}), coba Yahoo...", flush=True)
-                    return _yahoo_chart_df(symbol, interval, bars or 500)
+                    print(f"[rest] Bybit gagal ({e1.__class__.__name__}), coba yfinance...", flush=True)
+                    try:
+                        return _yfinance_df(symbol, interval, bars or 500)
+                    except Exception as e2:
+                        print(f"[rest] yfinance gagal ({e2.__class__.__name__}), coba Yahoo raw...", flush=True)
+                        return _yahoo_chart_df(symbol, interval, bars or 500)
             print(f"[rest] fallback ke {candidates[ci]}", flush=True)
             continue
         if r.status_code in (418, 429):                      # rate limit
@@ -271,7 +343,9 @@ class LiveFeed:
 
     # -- data
     def seed(self):
-        if self.provider == "yahoo":
+        if self.provider == "yfinance":
+            self.buf = _yfinance_df(self.symbol, self.interval, self.buffer_bars)
+        elif self.provider == "yahoo":
             self.buf = _yahoo_chart_df(self.symbol, self.interval, self.buffer_bars)
         else:
             self.buf = fetch_klines(self.symbol, self.interval, bars=self.buffer_bars,
@@ -329,16 +403,18 @@ class LiveFeed:
     async def run(self):
         import websockets                                    # impor lokal
         self.seed()
-        if self.provider == "yahoo":
-            # Yahoo tidak punya WS -> polling REST berkala, feed candle yang close
+        if self.provider in ("yahoo", "yfinance"):
+            # Tidak ada WS -> polling REST berkala, feed candle yang close
+            _fetch_fn = _yfinance_df if self.provider == "yfinance" else _yahoo_chart_df
+            _label = self.provider
             while True:
                 await asyncio.sleep(self.poll_sec)
                 try:
                     df = await asyncio.get_running_loop().run_in_executor(
-                        None, _yahoo_chart_df, self.symbol, self.interval,
+                        None, _fetch_fn, self.symbol, self.interval,
                         self.buffer_bars)
                 except Exception as e:
-                    print(f"[yahoo] poll gagal ({self.interval}):", e, flush=True)
+                    print(f"[{_label}] poll gagal ({self.interval}): {e}", flush=True)
                     continue
                 if df is None or df.empty:
                     continue

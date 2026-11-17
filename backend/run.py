@@ -233,9 +233,10 @@ async def main():
     ap.add_argument("--market", default=os.getenv("AT_MARKET", "spot"),
                     choices=["spot", "futures"])
     ap.add_argument("--provider", default=os.getenv("AT_PROVIDER", "binance"),
-                    choices=["binance", "yahoo"],
+                    choices=["binance", "yahoo", "yfinance"],
                     help="binance = realtime WS (fallback otomatis); "
-                         "yahoo = polling REST (GC=F = emas asli COMEX)")
+                         "yahoo = polling raw chart API; "
+                         "yfinance = polling via library yfinance (GC=F lebih stabil)")
     ap.add_argument("--bars", type=int, default=int(os.getenv("AT_BARS", "1500")))
     ap.add_argument("--port", type=int, default=int(os.getenv("AT_PORT", "8788")))
     ap.add_argument("--ws-port", type=int, default=int(os.getenv("AT_WS_PORT", "8789")))
