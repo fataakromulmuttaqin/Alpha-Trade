@@ -1,0 +1,163 @@
+// ============================================================
+// ALPHA-TRADE 5-GATE CONFLUENCE — Frost Script port
+// Sumber: backend/confluence_engine.py + godmode_engine.py
+// Tujuan: strategy tester tradoor (fee/slippage/funding per exchange,
+//         Monte Carlo, optimizer held-out) — melengkapi backtest.py.
+//
+// Adaptasi wajib (Frost Script tidak punya):
+//   * request.security  -> tren HTF (4h) diaproksimasi EMA panjang di TF
+//     entry: 4h EMA50 = EMA(50 x mult), 4h EMA200 = EMA(200 x mult).
+//     Paling dekat dengan engine asli di TF 15m dengan mult 4.
+//   * Volume Profile    -> proksi level volume: rolling VWAP
+//     sum(hlc3 x volume) / sum(volume), pita stdev sebagai VAL/VAH.
+//   * Partial TP1 50%   -> tester Frost pakai satu stop/target, jadi
+//     TP = 2R (TP2 engine) dan stop digeser ke BE setelah 1.5R tercapai
+//     (meniru aturan TP1 -> breakeven di backtest.py).
+// Catatan: nilai close/open bar sebelumnya diambil lewat change()
+// (close[1] = close - change(close)) karena Frost tidak punya indexing [n].
+// ============================================================
+
+// helper divergensi: harga membuat pivot lebih ekstrem tapi RSI tidak
+fn div_ok(prices, rsis, is_low) {
+  p_now = prices.get(-1)
+  p_prev = prices.get(-2)
+  r_now = rsis.get(-1)
+  r_prev = rsis.get(-2)
+  return is_low ? (p_now < p_prev and r_now > r_prev) : (p_now > p_prev and r_now < r_prev)
+}
+
+// ---------- Pengaturan ----------
+input mult = 4 min 1 max 12 "Pengali HTF (EMA50 HTF = EMA(50 x mult))"
+input rsi_len = 14 min 2 max 100 "Panjang RSI"
+input pull_l = 40 min 20 max 60 "RSI pullback long"
+input pull_s = 60 min 40 max 80 "RSI pullback short"
+input atr_len = 14 min 2 max 100 "Panjang ATR"
+input vp_len = 200 min 20 max 2000 "Lookback proksi volume level"
+input prox = 0.75 min 0 max 3 "Jarak ke level (xATR)"
+input rank_len = 500 min 100 max 5000 "Window rank ATR"
+input sl_buf = 0.25 min 0 max 2 "Buffer SL di luar swing (xATR)"
+input tp_r = 2 min 1 max 5 "Target (R)"
+
+// ---------- Indikator dasar ----------
+ema9 = ema(close, 9)
+ema20 = ema(close, 20)
+ema50 = ema(close, 50)
+rsi_v = rsi(close, rsi_len)
+atr_v = atr(atr_len)
+macd_line = ema(close, 12) - ema(close, 26)
+macd_sig = ema(macd_line, 9)
+hist = macd_line - macd_sig
+close_p = close - change(close)
+open_p = open - change(open)
+
+// ---------- GATE 1: TREND ----------
+htf50 = ema(close, 50 * mult)
+htf200 = ema(close, 200 * mult)
+htf_up = close > htf50 and htf50 > htf200 and change(htf200) > 0
+htf_dn = close < htf50 and htf50 < htf200 and change(htf200) < 0
+stack_l = ema9 > ema20 and close > ema50
+stack_s = ema9 < ema20 and close < ema50
+g_trend_l = htf_up and stack_l
+g_trend_s = htf_dn and stack_s
+
+// ---------- GATE 2: MOMENTUM ----------
+// divergensi regular: pivot terkonfirmasi (5/5), RSI dicatat saat konfirmasi
+state p_lows = list()
+state p_rsis = list()
+state p_highs = list()
+state p_hrsis = list()
+pl = pivotlow(5, 5)
+ph = pivothigh(5, 5)
+if not isna(pl) {
+  p_lows.push(pl)
+  p_rsis.push(rsi_v)
+  if p_lows.size() > 20 {
+    p_lows.remove(0)
+    p_rsis.remove(0)
+  }
+}
+if not isna(ph) {
+  p_highs.push(ph)
+  p_hrsis.push(rsi_v)
+  if p_highs.size() > 20 {
+    p_highs.remove(0)
+    p_hrsis.remove(0)
+  }
+}
+bull_div = p_lows.size() >= 2 and div_ok(p_lows, p_rsis, true)
+bear_div = p_highs.size() >= 2 and div_ok(p_highs, p_hrsis, false)
+rsi_up = crossover(rsi_v, pull_l)
+rsi_dn = crossunder(rsi_v, pull_s)
+macd_up = crossover(macd_line, macd_sig) or (hist > 0 and change(hist) > 0)
+macd_dn = crossunder(macd_line, macd_sig) or (hist < 0 and change(hist) < 0)
+g_mom_l = (rsi_up or bull_div) and macd_up
+g_mom_s = (rsi_dn or bear_div) and macd_dn
+
+// ---------- GATE 3: LEVEL VOLUME (proksi POC/VAL/VAH) ----------
+hlc3 = (high + low + close) / 3
+vwap_p = sum(hlc3 * volume, vp_len) / sum(volume, vp_len)
+dev = stdev(close, vp_len)
+g_vp_l = abs(close - vwap_p) <= prox * atr_v and close >= vwap_p - 0.5 * dev
+g_vp_s = abs(close - vwap_p) <= prox * atr_v and close <= vwap_p + 0.5 * dev
+
+// ---------- GATE 4: PRICE ACTION ----------
+body = abs(close - open)
+bull_eng = close > open and close_p < open_p and close >= open_p
+bear_eng = close < open and close_p > open_p and close <= open_p
+pin_l = (min(open, close) - low) >= 2 * body and (min(open, close) - low) > (high - max(open, close))
+pin_s = (high - max(open, close)) >= 2 * body and (high - max(open, close)) > (min(open, close) - low)
+sweep_l = low < lowest(low, 21) and close > lowest(low, 21)
+sweep_s = high > highest(high, 21) and close < highest(high, 21)
+g_pa_l = bull_eng or pin_l or sweep_l
+g_pa_s = bear_eng or pin_s or sweep_s
+
+// ---------- GATE 5: VOLATILITAS ----------
+atr_rank = percentrank(atr_v, rank_len)
+g_vol = atr_rank >= 20 and atr_rank <= 95
+
+// ---------- Sinyal ----------
+risk_l = min(max(close - (lowest(low, 5) - sl_buf * atr_v), 1.0 * atr_v), 2.5 * atr_v)
+risk_s = min(max((highest(high, 5) + sl_buf * atr_v) - close, 1.0 * atr_v), 2.5 * atr_v)
+long_ok = g_trend_l and g_mom_l and g_vp_l and g_pa_l and g_vol
+short_ok = g_trend_s and g_mom_s and g_vp_s and g_pa_s and g_vol
+
+// ---------- State posisi: stop/target ala engine ----------
+state entry_stop = na
+state entry_target = na
+state entry_risk = na
+state armed = 0
+// state hanya di-set saat sinyal baru DAN tidak sedang posisi (pyramiding off),
+// agar stop/target trade yang berjalan tidak terhapus sinyal ulang.
+if long_ok and not inlong and not inshort {
+  entry_stop = close - risk_l
+  entry_target = close + tp_r * risk_l
+  entry_risk = na
+  armed = 0
+}
+if short_ok and not inlong and not inshort {
+  entry_stop = close + risk_s
+  entry_target = close - tp_r * risk_s
+  entry_risk = na
+  armed = 0
+}
+// risiko dihitung dari harga entry riil di bar pertama setelah masuk
+if (inlong or inshort) and isna(entry_risk) {
+  entry_risk = abs(entryprice - entry_stop)
+}
+// BE setelah 1.5R (meniru TP1 -> breakeven)
+tp1_hit = (inlong and close >= entryprice + 1.5 * entry_risk) or (inshort and close <= entryprice - 1.5 * entry_risk)
+if tp1_hit {
+  armed = 1
+}
+stop(inlong or inshort ? (armed == 1 ? entryprice : entry_stop) : na)
+target(inlong or inshort ? entry_target : na)
+
+// ---------- Visual ----------
+plot(ema9, "EMA 9", #d9b64a)
+plot(ema20, "EMA 20", #2dd4bf)
+plot(ema50, "EMA 50", #8b93a1)
+plot(htf200, "EMA HTF200", #ea3943)
+plot(vwap_p, "VWAP proxy", #e6e9ee)
+mark(long_ok, "BUY", below, green)
+mark(short_ok, "SELL", above, red)
+label(g_vol ? na : "VOLATILITAS OFF", above, #ea3943)

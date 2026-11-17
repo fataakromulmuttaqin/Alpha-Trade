@@ -1,0 +1,328 @@
+INSTRUCTIONS FOR AN AI: CONVERT A PINE SCRIPT v6 INDICATOR OR STRATEGY TO FROST SCRIPT
+
+You are converting a TradingView Pine Script v6 indicator or strategy into Frost
+Script, the indicator and strategy language of tradoor terminal
+(https://tradoorterminal.com), whose strategy tester backtests it. Frost
+Script is close to Pine: it has numbers, texts, lists, functions of your own,
+if/for/while, lines, labels, boxes, a table, background colours, candle colours,
+plots with styles, offsets and colours bar by bar. Only what is written below
+exists: never invent a function, keyword, colour, argument or option. The full
+reference is at https://tradoorterminal.com/doc.html#frost-script
+
+HOW TO ANSWER
+
+1. One code block holding the whole Frost Script, and nothing else in it, every
+   line on a line of its own: Frost Script reads one statement a line.
+2. After it, a name for the script (the editor keeps the name; the script has no
+   indicator() line), then a short list of what changed and anything that could
+   not be carried over, and why.
+3. Convert all of the indicator, not a part: its lines, labels, tables and
+   logic. Leave out only what the list "NOT AVAILABLE" names.
+4. Before answering, check every line against the rules below.
+
+HOW A SCRIPT RUNS
+
+- As in Pine: once for every bar, oldest first, top to bottom. Only closed
+  bars: barstate.isconfirmed is always true, and the newest closed bar is the
+  last (islast).
+- Values are numbers (true is 1, false 0, na is no value, a colour is a number
+  too), texts in double quotes, and lists. A name keeps one kind: a number, a
+  text or a list.
+
+WRITING IT DOWN
+
+- One statement a line; ; also ends one. Inside round brackets a statement may
+  run on over several lines, as a long call or condition.
+- // starts a comment. Texts use double quotes only: "RSI", never 'RSI'.
+  "\n" is a line break inside a text.
+- Names: letters, digits and _, starting with a letter or _, at most 40 long.
+  Capitals count.
+- Blocks use braces, not indentation:
+    if close > open {
+      up = 1
+    } else if close < open {
+      up = -1
+    } else {
+      up = 0
+    }
+- for i = a to b { } counts up by 1, both ends included, and does not run when
+  b < a. To count down write by: for k = n - 1 to 0 by -1 { }  (Pine's for loop
+  that counts down needs by -1.) Any step: by 2, by -0.5.
+- while condition { }   break   continue
+- At most 10,000 rounds for one loop.
+- Words that are taken and never names: input state if else for to while
+  break continue fn return and or not pane na true false above below, every
+  bar value and colour name below, and solid dashed dotted steps dots pi
+  sunday monday tuesday wednesday thursday friday saturday. Rename a Pine
+  variable that collides: high -> hi, red -> bear, time -> t.
+- A variable, setting or parameter may share a built-in function's name (sum,
+  label, line, rising): a call has brackets. A function of your own may not.
+- Numbers are written with digits and one point, 15 digits at most: 0.015, 2,
+  .5. No 1e5: write 100000.
+
+BAR VALUES
+
+open high low close volume  hl2 hlc3 ohlc4  tr (true range)
+bar           Pine's bar_index
+time          the bar's open, ms since 1970 UTC
+day week month year     counters that change as a new UTC day, week (from
+                        Monday), month or year begins: changed(week) is true on
+                        a week's first bar. year is also the year's number.
+hour minute dayofweek dayofmonth monthofyear     UTC; dayofweek 1 is Sunday,
+                        2 Monday (as Pine; monday is the constant 2)
+isfirst islast          the first bar, the newest closed bar
+lastbar                 Pine's last_bar_index
+interval                a bar's length in ms
+tick decimals           the market's price step, and how many decimals a price has
+
+SETTINGS (at the top level)
+
+input length = 14 min 2 max 500 "Length"          a number; step 0.1 for decimals
+input show = true "Show labels"                    a tick: 1 or 0
+input lineColor = #2962ff "Line colour"            a colour
+input size = "small" from "tiny", "small", "normal", "large" "Label size"
+                                                   a choice: its value is the text
+input start = date(2024, 1, 1) "Range start"      a moment: date(y, m, d, h, min), UTC
+At most 32 settings.
+
+VARIABLES
+
+- x = value sets it for this bar; a plain variable starts each bar as na.
+- state x = start keeps its value from bar to bar: Pine's var and varip. Its
+  start is set the first time the line is reached; it may be inside if, for
+  and functions. state xs = list() is a list kept from bar to bar.
+- Pine's := is plain =. Drop type words (float int bool string color line label
+  box table var series simple const).
+- x[n] is x as it ended n bars ago (n 0 to 5,000), for numbers and bar values.
+  Name an expression first: Pine (close - open)[1] is  body = close - open  then  body[1]
+
+OPERATORS
+
++ - * / %  == != < <= > >=  and or not  c ? a : b
+- Division is exact: 5 / 2 is 2.5; floor() for a whole number.
+- Anything but 0 is true; 0 and na are false. A comparison with na is false:
+  Pine's na(x) or x != y is  isna(x) or x != y.  Maths with na gives na.
+- Texts join with +: "H " + str(price). A number joined to a text is written
+  plainly. Texts compare with == and !=.
+
+TEXTS
+
+str(x)            a number written plainly (up to 8 decimals)
+str(x, 2)         to 2 decimals
+str(x, decimals)  as the market writes a price (Pine's format.mintick)
+duration(ms)      "2d 4h", "3h"
+str(round(x, 2)) is Pine's str.tostring(x, "#.##").
+
+COLOURS
+
+Names: green lime red orange yellow blue aqua teal purple pink white gray grey
+black silver maroon navy olive fuchsia. #rrggbb, #rgb, #rrggbbaa.
+rgb(r, g, b) and rgb(r, g, b, opacity) with opacity 0 to 1.
+alpha(colour, opacity): Pine's color.new(c, transp) is alpha(c, 1 - transp / 100).
+gradient(value, low, high, lowColour, highColour): Pine's color.from_gradient.
+na is no colour: nothing drawn. A colour is a number: c = up ? green : red works.
+
+LISTS (Pine's arrays, of numbers)
+
+xs = list()             made empty here (state xs = list() keeps it)
+xs.push(v) xs.pop() xs.shift() xs.unshift(v) xs.get(i) xs.set(i, v)
+xs.insert(i, v) xs.remove(i) xs.clear() xs.size() xs.first() xs.last()
+xs.sum() xs.avg() xs.min() xs.max() xs.indexof(v) xs.includes(v) xs.sort() xs.reverse()
+- get(-1) is the last. A place outside the list is an error.
+- A list holds numbers: keep texts as numbers (1 for "H", 0 for "L"), and
+  lines and labels by the number line() and label() give.
+- At most 5,000 values (pushed when full, the oldest goes) and 32 lists.
+
+FUNCTIONS (Pine's f(x) =>)
+
+fn name(a, b) {
+  ...
+  return value          or  return a, b
+}
+x = name(1, close)      p, q = name(1, close)      name(1, close) on its own line
+- A function's own names are its own; it reads the script's names but setting
+  one inside makes a new one of the function's. To change the script's, give a
+  value back with return, or keep it in a list or a state.
+- It cannot call itself. Each call has its own state and its own memory for
+  ema(), sma() and the rest.
+- Settings, plots, the pane and the table are not inside functions.
+
+FUNCTIONS OVER BARS (never inside if, for or while; work the value out above,
+use it inside). Both sides of c ? a : b are worked out. A length is 1 to 5,000:
+a number, a setting, or maths on them (length * 2, round(length / 2)).
+
+sma ema rma wma vwma hma stdev dev median highest lowest sum (each (x, length))
+rsi(x, length)  atr(length)  change(x) change(x, n)  roc(x, n)  linreg(x, length)
+cci(x, length)  mfi(x, length)  stoch(close, high, low, length)
+correlation(a, b, length)  percentrank(x, length)  rising(x, n)  falling(x, n)
+highestbars(x, n) lowestbars(x, n) (0 or less, as Pine)
+highest(n) lowest(n) highestbars(n) lowestbars(n)  read high and low, as Pine's
+pivothigh(left, right) pivotlow(left, right)  or with a value first
+crossover(a, b) crossunder(a, b) cross(a, b)  barssince(c)  valuewhen(c, x)
+changed(x)  cum(x)
+
+MATHS (anywhere)
+
+abs sqrt log log10 exp pow round(x) round(x, digits) floor ceil sign
+min max avg (2 to 12 values; na if any is) clamp(x, lo, hi) nz(x) nz(x, y)
+isna(x) sin cos tan atan atan2 pi date(y, m, d, h, min) barat(time) (the bar
+holding a moment: Pine's xloc.bar_time turned into a bar)
+
+PLOTS (at the top level; by position or by name)
+
+plot(value, title, color, width, style, offset)
+  style: line steps dots dashed dotted. color may change bar by bar:
+  plot(x, "X", x > x[1] ? green : red). offset in bars: 26 draws ahead.
+histogram(value, title, color, offset)          plot.style_histogram/columns
+hline(value, title, color, width, style)        dashed unless another style
+fill("Title A", "Title B", color)               an opaque colour is shaded
+mark(condition, "Text", above or below, color)  plotshape, plotchar, plotarrow
+background(color)                               bgcolor; opaque is shaded
+barcolor(color)                                 barcolor
+pane own                                        overlay=false
+Each plot, histogram and hline needs its own title (40 characters). At most
+32 lines, 16 fills, 16 marks, 4 backgrounds. plot(x, "T", color=na) draws
+nothing and keeps the values, as display=display.none.
+
+STRATEGIES (at the top level, each once, as plot is)
+
+A script with long(…) or short(…) is a strategy. Orders are given at a bar's
+close and filled at the next bar's open.
+long(condition)                 strategy.entry("L", strategy.long) under if condition
+short(condition)                strategy.entry("S", strategy.short)
+long(condition, price)          strategy.entry(..., limit=price): for the next bar only
+exit(condition)                 strategy.close(...), strategy.close_all()
+stop(price)                     strategy.exit(..., stop=price): na for none
+target(price)                   strategy.exit(..., limit=price)
+inlong / inshort                strategy.position_size > 0 / < 0
+entryprice                      strategy.position_avg_price (na while flat)
+barsheld                        bars since the entry (na while flat)
+- Pine places orders inside if: work the condition out into a variable, then
+  give the order once at the top level: goLong = crossover(a, b) ... long(goLong).
+- One position at a time. The other side's entry reverses it; both sides on
+  one bar enter nothing.
+- stop() and target() are prices, given on every bar: stop(inlong ? entryprice
+  * 0.98 : na). The strategy() line's settings (initial_capital, qty,
+  commission, slippage, pyramiding, process_orders_on_close) are the tester's,
+  not the script's: leave them out and list them after the code.
+
+SHAPES (anywhere, as Pine's line.*, label.* and box.*; x is a bar: bar,
+bar - 5, bar + 10 ahead; y a price)
+
+ln = line(x1, y1, x2, y2, color, width, style, extend)
+     style solid dashed dotted; extend none left right both
+lb = label(x, y, text, color, textcolor, place, size, box)
+     place above below left right center (label_down is above, label_up below);
+     size tiny small normal large; box=false is style_none (text alone, in
+     color or textcolor)
+bx = box(x1, y1, x2, y2, color, border, width)     y1 top, y2 bottom
+delete(id)
+set_x1 set_y1 set_x2 set_y2 (id, v)   set_xy1 set_xy2 (id, x, y)
+set_x set_y (id, v) for a label       set_xy(id, x, y)
+set_text(id, text) set_color(id, c) set_textcolor(id, c) set_width(id, w)
+get_x1 get_y1 get_x2 get_y2(id)  get_text(id)
+- Named arguments as Pine's: line(a, b, c, d, color=red, width=2, style=dashed).
+- An id is a number: keep it in a state or a list. delete(na) does nothing.
+- The oldest goes past 500 lines, 500 labels or 200 boxes (max_lines_count).
+- xloc.bar_time: barat(t) gives the bar holding moment t.
+- yloc.abovebar / belowbar: y = high or low, place above or below.
+
+TABLE (Pine's table.*)
+
+table("top right")   once, at the top level: top middle bottom, left center
+                     right; or from a choice setting: table(positionSetting)
+cell(col, row, text, color, background)   anywhere; col 0 to 3, row 0 to 15.
+Draw cells on the last bar: if islast { cell(...) }
+
+PINE TO FROST SCRIPT, IN SHORT
+
+//@version=6, indicator(...)      leave out; overlay=false is pane own
+input.int/float(14, "L", minval, maxval, step)   input l = 14 min .. max .. step .. "L"
+input.bool / input.color / input.string(options) / input.time
+                                   as SETTINGS above; group, inline, tooltip,
+                                   confirm are left out
+ta.sma ta.ema ... ta.pivothigh     the same names without ta.
+math.abs math.max ... math.pi      the same names without math.
+math.sum(x, n)                     sum(x, n)
+math.avg(a, b)                     avg(a, b)
+na(x)                              isna(x)
+str.tostring(x) / (x, "#.##") / (x, format.mintick)   str(x) / str(round(x, 2)) / str(x, decimals)
+bar_index, last_bar_index          bar, lastbar
+barstate.isfirst / islast          isfirst / islast
+timeframe.change("D"/"W"/"M"/"12M")   changed(day/week/month/year)
+ta.change(time("W")) != 0          changed(week)
+dayofweek == dayofweek.monday      dayofweek == monday
+timestamp(y, m, d, h, min)         date(y, m, d, h, min)
+color.new(c, t)                    alpha(c, 1 - t / 100)
+color.rgb(r, g, b, t)              rgb(r, g, b, 1 - t / 100)
+array.new<float>() with var        state xs = list()
+array.push(a, v) / array.get(a, i) / array.size(a)   a.push(v) / a.get(i) / a.size()
+array<string> of "H"/"L"           a list of 1 and 0
+switch                             if / else if, or nested ? :
+f(x) =>                            fn f(x) { return ... }
+[a, b] = f(x)                      a, b = f(x)
+label.new(x, y, text=t, style=label.style_label_down, color=c, textcolor=w, size=size.small)
+                                   label(x, y, t, color=c, textcolor=w, place=above, size=small)
+line.new(x1, y1, x2, y2, color=c, width=2, style=line.style_dotted, extend=extend.both)
+                                   line(x1, y1, x2, y2, color=c, width=2, style=dotted, extend=both)
+xloc=xloc.bar_time (x a time)      barat(t) for x
+label.style_none                   box=false
+size.tiny/small/normal/large       tiny small normal large
+plot.style_line/stepline/circles/cross   line steps dots dots
+line.style_solid/dashed/dotted     solid dashed dotted
+table.new(position.top_right, ...) table("top right")
+table.cell(t, c, r, text, text_color=x, bgcolor=y)   cell(c, r, text, x, y)
+
+NOT AVAILABLE: SAY SO, DO NOT FAKE IT
+
+request.security and any other timeframe or symbol; strategy.* beyond the
+orders above (pyramiding, several named entries at once, partial exits,
+strategy.equity and the trade lists); alert() and alertcondition();
+timenow and the clock (use the newest bar's time instead); polyline.*;
+matrix.* and map.*; str.* functions other than str.tostring; syminfo.* other
+than the price step; text lists; methods and types of your own; imports.
+
+If a script relies on one of these at its heart, convert the rest and say
+plainly what was left out.
+
+A WHOLE CONVERSION, FOR SHAPE
+
+Pine:
+//@version=6
+indicator("Swing labels", overlay=true, max_labels_count=500)
+len = input.int(5, "Pivot length", minval=1)
+showPct = input.bool(true, "Show %")
+var array<float> prices = array.new<float>()
+ph = ta.pivothigh(len, len)
+pl = ta.pivotlow(len, len)
+f_text(string tag, float move) => showPct ? tag + "\n" + str.tostring(move, "#.##") + "%" : tag
+if not na(ph)
+    move = array.size(prices) > 0 ? (ph - array.get(prices, array.size(prices) - 1)) / array.get(prices, array.size(prices) - 1) * 100 : 0
+    label.new(bar_index[len], ph, f_text("H", move), style=label.style_label_down, color=color.new(color.green, 20), textcolor=color.white)
+    array.push(prices, ph)
+if not na(pl)
+    move = array.size(prices) > 0 ? (pl - array.get(prices, array.size(prices) - 1)) / array.get(prices, array.size(prices) - 1) * 100 : 0
+    label.new(bar_index[len], pl, f_text("L", move), style=label.style_label_up, color=color.new(color.red, 20), textcolor=color.white)
+    array.push(prices, pl)
+
+Frost Script:
+input len = 5 min 1 max 100 "Pivot length"
+input showPct = true "Show %"
+state prices = list()
+ph = pivothigh(len, len)
+pl = pivotlow(len, len)
+fn swingText(tag, move) {
+  return showPct ? tag + "\n" + str(round(move, 2)) + "%" : tag
+}
+if not isna(ph) {
+  move = prices.size() > 0 ? (ph - prices.last()) / prices.last() * 100 : 0
+  highLabel = label(bar - len, ph, swingText("H", move), color = alpha(green, 0.8), textcolor = white, place = above)
+  prices.push(ph)
+}
+if not isna(pl) {
+  move = prices.size() > 0 ? (pl - prices.last()) / prices.last() * 100 : 0
+  lowLabel = label(bar - len, pl, swingText("L", move), color = alpha(red, 0.8), textcolor = white, place = below)
+  prices.push(pl)
+}
+
+Now convert the Pine Script v6 indicator or strategy I give you next.
