@@ -36,7 +36,11 @@ python -m backend.run --symbol PAXGUSDT --label XAUUSD --entry-tf 5m --htf 4h
 # 3) EMAS ASLI (futures COMEX) via Yahoo Finance, polling REST tanpa key:
 python -m backend.run --provider yahoo --symbol "GC=F" --label XAUUSD --entry-tf 5m --htf 1h
 
-# 4) Kripto / simbol lain
+# 4) Backfill history bertahun-tahun ke format tradoor (arsip resmi Binance), lalu jalankan dari sana:
+python -m backend.backfill_tradoor --symbol PAXGUSDT --from 2023-01
+python -m backend.run --provider tradoor --tradoor-data tradoor-data/data --tradoor-market binance:PAXGUSDT
+
+# 5) Kripto / simbol lain
 python -m backend.run --symbol BTCUSDT --label BTCUSDT --entry-tf 15m --htf 4h
 ```
 
