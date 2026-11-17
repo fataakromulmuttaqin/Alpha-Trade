@@ -65,6 +65,55 @@ sendiri (`tradoor-backfill binance-perp:BTCUSDT --from ...`).
    kodenya dimodifikasi dan dilayani ke publik, wajib open-source-kan modifikasinya.
    Alpha-Trade (kode terpisah, komunikasi via sinyal manual) tidak terpengaruh.
 
+## Ambil data Tradoor untuk Alpha-Trade (sudah dibangun + teruji)
+
+Tradoor menyimpan candle sebagai partisi **TDC1** terdokumentasi penuh
+(`docs/format.md` di repo mereka): `data/{venue}/{SYMBOL}/{1m|1h|1d}/*.tdc.gz`
++ `manifest.json` per market. Server tradoor menyajikannya publik di `/data/...`.
+`backend/tradoor_feed.py` membaca format ini langsung dari Python:
+
+- `read_tdc1(path|bytes)` — decoder gzip + LEB128/zigzag (round-trip 100% diuji
+  dengan encoder internal; 500 bar ≈ 3.4 KB gzip, konsisten klaim 42 MB/5 tahun)
+- `load_market(source, market, interval, bars)` — baca manifest, gabung partisi,
+  **resample otomatis** (tradoor hanya menyimpan 1m/1h/1d; 5m/15m/30m/4h
+  diturunkan dari 1m/1h). `source` = direktori data tradoor ATAU base URL
+  `http://host/data`. Di Windows disk lokal, `:` pada nama market diganti `_`.
+- `TradoorFeed` — polling feed (interface sama dengan LiveFeed) untuk dashboard.
+
+Jalankan dashboard Alpha-Trade dari data tradoor:
+
+```bash
+python -m backend.run --provider tradoor \
+  --tradoor-data "C:/tradoor/data" \
+  --tradoor-market "binance-perp:BTCUSDT" \
+  --entry-tf 5m --htf 4h
+# atau dari server tradoor via HTTP:
+python -m backend.run --provider tradoor --tradoor-data "http://localhost:8080/data" ...
+```
+
+Terverifikasi end-to-end: 55.000 bar 1m sintetis dalam 2 partisi bulanan →
+server hidup dengan 6 TF (1m/5m/15m/30m = 1500, 1h = 917, 4h = 230 bar) dan
+engine 5-gate berjalan normal di atasnya.
+
+## Modifikasi platform tradoor "sesuai Alpha-Trade"
+
+Tanpa fork (aman AGPL, sudah siap):
+1. **Frost Script strategy** `docs/frost/alpha-trade-strategy.frost` — algoritma
+   5-gate berjalan native di chart tradoor + strategy tester-nya.
+2. **Community script** — strategy Frost boleh dibagikan publik lewat fitur
+   Community tradoor (username sekali pilih).
+
+Dengan fork (modifikasi SolidJS/Rust — wajib open-source bila dilayani publik):
+3. Tambah panel "ALPHA-TRADE" di `web/` (SolidJS) yang polling
+   `http://localhost:8788/api/snapshot` (server Alpha-Trade sudah mengirim header
+   CORS `*`) untuk menampilkan sinyal/zone map/heat map GODMODE di dalam tradoor.
+   Titik hook: `web/src/` (komponen panel + route workspace), build `deno task build`.
+4. Tambah route `POST /api/signals` di `bins/server/src/api.rs` bila ingin sinyal
+   Alpha-Trade masuk ke daftar signals internal tradoor (saat ini signals hanya
+   dari screener three-drive bawaan).
+5. `/api/training/orders` (paper trading) butuh sesi owner (Telegram sign-in) —
+   bukan jalur otomatis; untuk otomatis penuh tetap gunakan testnet Alpha-Trade.
+
 ## Rekomendasi urutan
 1. Paste `alpha-trade-strategy.frost` ke tradoor → jalankan strategy tester di
    `binance-perp:BTCUSDT` 15m (mult 4) → bandingkan hasilnya dengan `backtest.py`

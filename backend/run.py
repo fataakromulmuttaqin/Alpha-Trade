@@ -21,6 +21,7 @@ from .binance_feed import MultiFeed, INTERVAL_MS
 from .confluence_engine import Config, generate_signals
 from .server import DashboardServer
 from .testnet_executor import TestnetExecutor
+from .tradoor_feed import TradoorFeed
 
 
 class AppState:
@@ -233,10 +234,15 @@ async def main():
     ap.add_argument("--market", default=os.getenv("AT_MARKET", "spot"),
                     choices=["spot", "futures"])
     ap.add_argument("--provider", default=os.getenv("AT_PROVIDER", "binance"),
-                    choices=["binance", "yahoo", "yfinance"],
+                    choices=["binance", "yahoo", "yfinance", "tradoor"],
                     help="binance = realtime WS (fallback otomatis); "
                          "yahoo = polling raw chart API; "
-                         "yfinance = polling via library yfinance (GC=F lebih stabil)")
+                         "yfinance = polling via library yfinance (GC=F lebih stabil); "
+                         "tradoor = baca partisi TDC1 tradoor self-host")
+    ap.add_argument("--tradoor-data", default=os.getenv("AT_TRADOOR_DATA", ""),
+                    help="direktori data tradoor ATAU base URL /data/... server tradoor")
+    ap.add_argument("--tradoor-market", default=os.getenv("AT_TRADOOR_MARKET", ""),
+                    help="market tradoor, mis. binance-perp:BTCUSDT (default dari --symbol)")
     ap.add_argument("--bars", type=int, default=int(os.getenv("AT_BARS", "1500")))
     ap.add_argument("--port", type=int, default=int(os.getenv("AT_PORT", "8788")))
     ap.add_argument("--ws-port", type=int, default=int(os.getenv("AT_WS_PORT", "8789")))
@@ -255,6 +261,38 @@ async def main():
         print(f"[run] mode DEMO — {state.label} (sintetis) | TF: {', '.join(DEMO_TFS)} | "
               f"exec={executor.mode}", flush=True)
         feed = DemoFeed(entry_tf="5m", tfs=DEMO_TFS)
+    elif args.provider == "tradoor":
+        # Data dari tradoor self-host (file lokal atau HTTP /data/...).
+        if not args.tradoor_data:
+            raise SystemExit("--provider tradoor butuh --tradoor-data <dir|url>")
+        state.entry_tf, state.htf = args.entry_tf, args.htf
+        tfs = list(dict.fromkeys(LIVE_TFS + (args.entry_tf, args.htf)))
+        tmarket = args.tradoor_market or (
+            f"{'binance-perp' if args.market == 'futures' else 'binance'}:{args.symbol}")
+        print(f"[run] {state.label} tradoor data={args.tradoor_data} market={tmarket} "
+              f"entry={args.entry_tf} htf={args.htf} exec={executor.mode}", flush=True)
+        feeds = []
+        for tf in tfs:
+            feeds.append(TradoorFeed(
+                args.tradoor_data, tmarket, tf, buffer_bars=args.bars,
+                on_candle=lambda tf_, buf_: asyncio.get_running_loop().create_task(
+                    state.on_candle(tf_, buf_)),
+                poll_sec=max(30, INTERVAL_MS[tf] // 4000)))
+        for f in feeds:
+            try:
+                state.buffers[f.interval] = f.seed()
+            except Exception as e:
+                print(f"[seed] {f.interval} gagal: {e}", flush=True)
+        snap = build_snapshot(state.buffers, cfg, state.signals_log, state.label,
+                              view_tf=args.entry_tf, htf_tf=args.htf)
+        if snap:
+            snap["engine_entry"] = args.entry_tf
+            snap["exec_mode"] = executor.mode
+        state.snapshot_data = snap
+
+        async def tradoor_loop():
+            await asyncio.gather(*(f.run(state) for f in feeds))
+        return await tradoor_loop()
     else:
         state.entry_tf, state.htf = args.entry_tf, args.htf
         tfs = list(dict.fromkeys(LIVE_TFS + (args.entry_tf, args.htf)))
