@@ -193,6 +193,39 @@ def load_tradoor_history(source, market, tfs, caps=None):
     return out
 
 
+def seed_last_signal(state, deep_bars=50_000):
+    """Cari sinyal terakhir di deep history (tanpa eksekusi) supaya log sinyal
+    dan fallback toggle RR langsung terisi saat boot."""
+    try:
+        import pandas as pd
+        hist = state.buffers.get(state.entry_tf)
+        deep = state.deep_history.get(state.entry_tf)
+        if deep is not None and len(deep):
+            extra = hist[~hist.index.isin(deep.index)] if hist is not None and len(hist) else None
+            src = pd.concat([deep, extra]) if extra is not None else deep
+        else:
+            src = hist
+        if src is None or len(src) < 300:
+            return
+        htf_buf = state.buffers.get(state.htf)
+        sig = generate_signals(src.tail(deep_bars), state.cfg, htf_df=htf_buf)
+        if sig.empty:
+            return
+        t, row = sig.index[-1], sig.iloc[-1]
+        state.signals_log = [{
+            "time": t.isoformat(), "tf": state.entry_tf,
+            "side": "LONG" if row["signal"] == 1 else "SHORT",
+            "entry": round(float(row["entry"]), 2), "sl": round(float(row["sl"]), 2),
+            "tp1": round(float(row["tp1"]), 2), "tp2": round(float(row["tp2"]), 2),
+            "score": int(row["score"]),
+        }]
+        state._last_sig_time = t
+        print(f"[boot] sinyal terakhir (history): {state.signals_log[0]['side']} "
+              f"{t} entry={state.signals_log[0]['entry']}", flush=True)
+    except Exception as e:
+        print("[boot] seed sinyal history gagal:", e, flush=True)
+
+
 # ----------------------------- Demo feed ------------------------------------
 DEMO_TFS = ("1m", "5m", "15m", "30m", "1h", "4h")
 LIVE_TFS = ("1m", "5m", "15m", "30m", "1h", "4h")
@@ -359,6 +392,7 @@ async def main():
                 state.buffers[tf] = mf.feeds[tf].buf
             except Exception as e:
                 print(f"[seed] {tf} gagal: {e}", flush=True)
+        seed_last_signal(state)                          # isi log dulu (fallback RR)
         snap = build_snapshot(state.buffers, cfg, state.signals_log, state.label,
                               view_tf=args.entry_tf, htf_tf=args.htf)
         if snap:

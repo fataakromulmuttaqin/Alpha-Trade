@@ -143,14 +143,18 @@ function drawOverlays() {
   line("BASE", o.gp, { color: "rgba(217,182,74,.7)", title: "", style: DOT });
   line("BASE", o.ote, { color: "rgba(217,182,74,.7)", title: "", style: DOT });
 
-  // setup RR (toggle RR)
+  // setup RR (toggle RR): pakai setup aktif; kalau tidak ada, level dari
+  // sinyal terakhir di log — supaya toggle selalu punya efek terlihat.
   const su = snap.setup;
   const isEngineTf = !state.engineTf || state.activeTf === state.engineTf;
-  if (su && isEngineTf && state.toggles.RR) {
-    line("RR", su.entry, { color: "#e6e9ee", title: "Entry", style: SOLID, width: 2 });
-    line("RR", su.sl, { color: "#ea3943", title: "SL", style: SOLID, width: 1 });
-    line("RR", su.tp1, { color: "#16c784", title: "TP 1", style: DASH });
-    line("RR", su.tp2, { color: "#16c784", title: "TP 2", style: DASH });
+  const lastSig = !su ? (snap.signals_log || [])[0] : null;
+  const rrSrc = (su && isEngineTf) ? su : (lastSig && isEngineTf ? lastSig : null);
+  if (rrSrc && state.toggles.RR) {
+    const tag = su ? "" : " (last)";
+    line("RR", rrSrc.entry, { color: "#e6e9ee", title: "Entry" + tag, style: SOLID, width: 2 });
+    line("RR", rrSrc.sl, { color: "#ea3943", title: "SL" + tag, style: SOLID, width: 1 });
+    line("RR", rrSrc.tp1, { color: "#16c784", title: "TP 1" + tag, style: DASH });
+    line("RR", rrSrc.tp2, { color: "#16c784", title: "TP 2" + tag, style: DASH });
   }
   // forecast (chip)
   if (state.toggles.FORECAST && snap.forecast && snap.forecast.direction !== "NEUTRAL") {
@@ -281,11 +285,35 @@ function drawCanvas() {
   box(snap.overlays?.ote, "Fib 0.786 (OTE)", "#d9b64a", "#111");
   const su = snap.setup;
   const isEngineTf2 = !state.engineTf || state.activeTf === state.engineTf;
-  if (su && isEngineTf2 && state.toggles.RR) {
-    box(su.sl, "SL", "#ea3943", "#fff");
-    box(su.entry, "Entry", "#e6e9ee", "#111");
-    box(su.tp1, "TP 1", "#16c784", "#fff");
-    box(su.tp2, "TP 2", "#16c784", "#fff");
+  const lastSig2 = !su ? (snap.signals_log || [])[0] : null;
+  const rrSrc2 = (su && isEngineTf2) ? su : (lastSig2 && isEngineTf2 ? lastSig2 : null);
+  if (rrSrc2 && state.toggles.RR) {
+    const tag2 = su ? "" : " (last)";
+    box(rrSrc2.sl, "SL" + tag2, "#ea3943", "#fff");
+    box(rrSrc2.entry, "Entry" + tag2, "#e6e9ee", "#111");
+    box(rrSrc2.tp1, "TP 1" + tag2, "#16c784", "#fff");
+    box(rrSrc2.tp2, "TP 2" + tag2, "#16c784", "#fff");
+  }
+
+  /* badge status alert di pojok kiri atas (SND/ALARM/NOTIF) */
+  const badges = [];
+  if (state.toggles.SND) badges.push(["🔔 SND", "#d9b64a"]);
+  if (state.toggles.ALARM) badges.push(["🚨 ALARM", "#ea3943"]);
+  if (state.toggles.NOTIF) badges.push(["📬 NOTIF", "#2dd4bf"]);
+  if (badges.length) {
+    ctx.font = "bold 10px 'Segoe UI', sans-serif";
+    let bx = 8;
+    badges.forEach(([txt, col]) => {
+      const w = ctx.measureText(txt).width + 12;
+      ctx.fillStyle = "rgba(10,12,16,0.75)";
+      ctx.fillRect(bx, 8, w, 18);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, 8.5, w - 1, 17);
+      ctx.fillStyle = col;
+      ctx.fillText(txt, bx + 6, 21);
+      bx += w + 6;
+    });
   }
 }
 
@@ -625,7 +653,10 @@ function bindUI() {
     const name = b.dataset.toggle;
     state.toggles[name] = b.classList.contains("on");
     b.textContent = b.textContent.replace(/(ON|OFF)$/, state.toggles[name] ? "ON" : "OFF");
-    if (name === "CVD") updateCvdSeries();
+    if (name === "CVD" && state.cvdSeries) {
+      state.cvdSeries.applyOptions({ visible: state.toggles.CVD });
+    }
+    if (name === "SND" && state.toggles.SND) beep("single");   // konfirmasi audio aktif
     if (name === "NOTIF" && state.toggles.NOTIF && "Notification" in window
         && Notification.permission === "default") {
       Notification.requestPermission();
