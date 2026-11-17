@@ -11,36 +11,36 @@ Dashboard trading ala GODMODE untuk XAUUSD (via proxy emas Binance) yang digerak
 
 | File | Peran |
 |---|---|
-| `confluence_engine.py` | Engine sinyal 5 gate (Trend, Momentum, Volume Profile, Price Action, Volatilitas) + SL/TP ATR + `position_size()`. **Patch kecil:** `generate_signals(df, cfg, htf_df=None)` sekarang bisa menerima candle HTF **native dari feed** (bukan resample). Perilaku lama tidak berubah. |
-| `smc_structure.py` | Swing high/low, BOS, CHoCH (tanpa lookahead), `structure_confirms()`. |
-| `backtest.py` | Simulasi konservatif: entry open bar berikutnya, SL didahulukan, TP1 50% + breakeven, biaya spread, time stop, `walk_forward()`. |
-| `binance_feed.py` | REST histori + WebSocket live per TF. **Baru:** callback `on_candle` dan class **`MultiFeed`** — beberapa timeframe native sekaligus (mis. 15m + 4h, masing-masing stream sendiri dari Binance, bukan hasil resample). |
-| `testnet_executor.py` | **Mode eksekusi Binance Testnet** (spot `testnet.binance.vision` / futures `testnet.binancefuture.com`), HMAC signing, sizing dari `position_size()`, mode `paper` untuk simulasi. Tidak ada jalur mainnet. |
-| `godmode_engine.py` | **Lapisan semantik GODMODE SMC** (hasil reverse-engineering godmode.my.id — lihat `docs/GODMODE-ALGORITHM.md`): 4 lampu tren EMA, zona S1–S3/D1–D3, kondisi `[TRENDING]/[SIDEWAYS]`, skor confluence dinamis, klasifikasi setup (GOLDEN SETUP / HTF SNIPER ENTRY / SWING REVERSAL / A+ SNIPER CID), alert 2-stage, sesi pasar WIB, AI reasoning SITUASI-KARENA-MAKA, forecast ATR 1×/2×/3× + SL 1.5×. |
-| `analytics.py` | Panel dashboard: zona supply/demand + CVD, event struktur (CHOCH/HH/HL/LH/SWEEP/TC), volume flow + absorption, heatmap MTF, AI confluence, fib EQ/GP/OTE — kini menyatu dengan layer GODMODE. |
-| `server.py` | Server ala Meridian: static + REST (`/api/snapshot`, `/api/candles`, `/api/health`, `/api/signals`) + broadcast WebSocket. |
-| `run.py` | Orkestrator: feed → engine per candle close → dashboard + eksekusi. Ada `--demo` (data sintetis, tanpa internet). |
-| `web/` | Dashboard GODMODE-style: chart candlestick + overlay zona/fib/SL/TP, kartu Golden/High Risk, AI Confluence, Volume Flow, Zone Map, Market Structure Events, MTF Heatmap, Trade Setup, Signal Log. `lightweight-charts` v5 di-vendor lokal (tanpa CDN). |
+| `backend/confluence_engine.py` | Engine sinyal 5 gate (Trend, Momentum, Volume Profile, Price Action, Volatilitas) + SL/TP ATR + `position_size()`. **Patch kecil:** `generate_signals(df, cfg, htf_df=None)` sekarang bisa menerima candle HTF **native dari feed** (bukan resample). Perilaku lama tidak berubah. |
+| `backend/smc_structure.py` | Swing high/low, BOS, CHoCH (tanpa lookahead), `structure_confirms()`. |
+| `backend/backtest.py` | Simulasi konservatif: entry open bar berikutnya, SL didahulukan, TP1 50% + breakeven, biaya spread, time stop, `walk_forward()`. |
+| `backend/binance_feed.py` | REST histori + WebSocket live per TF. **Baru:** callback `on_candle` dan class **`MultiFeed`** — beberapa timeframe native sekaligus (mis. 15m + 4h, masing-masing stream sendiri dari Binance, bukan hasil resample). |
+| `backend/testnet_executor.py` | **Mode eksekusi Binance Testnet** (spot `testnet.binance.vision` / futures `testnet.binancefuture.com`), HMAC signing, sizing dari `position_size()`, mode `paper` untuk simulasi. Tidak ada jalur mainnet. |
+| `backend/godmode_engine.py` | **Lapisan semantik GODMODE SMC** (hasil reverse-engineering godmode.my.id — lihat `docs/GODMODE-ALGORITHM.md`): 4 lampu tren EMA, zona S1–S3/D1–D3, kondisi `[TRENDING]/[SIDEWAYS]`, skor confluence dinamis, klasifikasi setup (GOLDEN SETUP / HTF SNIPER ENTRY / SWING REVERSAL / A+ SNIPER CID), alert 2-stage, sesi pasar WIB, AI reasoning SITUASI-KARENA-MAKA, forecast ATR 1×/2×/3× + SL 1.5×. |
+| `backend/analytics.py` | Panel dashboard: zona supply/demand + CVD, event struktur (CHOCH/HH/HL/LH/SWEEP/TC), volume flow + absorption, heatmap MTF, AI confluence, fib EQ/GP/OTE — kini menyatu dengan layer GODMODE. |
+| `backend/server.py` | Server ala Meridian: static + REST (`/api/snapshot`, `/api/candles`, `/api/health`, `/api/signals`) + broadcast WebSocket. |
+| `backend/run.py` | Orkestrator: feed → engine per candle close → dashboard + eksekusi. Ada `--demo` (data sintetis, tanpa internet). |
+| `frontend/` | Dashboard GODMODE-style: chart candlestick + overlay zona/fib/SL/TP, kartu Golden/High Risk, AI Confluence, Volume Flow, Zone Map, Market Structure Events, MTF Heatmap, Trade Setup, Signal Log. `lightweight-charts` v5 di-vendor lokal (tanpa CDN). |
 
 ## Cara pakai
 
 ```bash
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 
 # 1) Uji dashboard tanpa internet (data sintetis, candle 5m dipercepat)
-python run.py --demo
+python -m backend.run --demo
 
 # 2) Live: XAUUSD proxy via PAXGUSDT spot, entry 5m + tren 4h — 6 TF native (1m..4h)
-python run.py --symbol PAXGUSDT --label XAUUSD --entry-tf 5m --htf 4h
+python -m backend.run --symbol PAXGUSDT --label XAUUSD --entry-tf 5m --htf 4h
 
 # 3) EMAS ASLI (futures COMEX) via Yahoo Finance, polling REST tanpa key:
-python run.py --provider yahoo --symbol "GC=F" --label XAUUSD --entry-tf 5m --htf 1h
+python -m backend.run --provider yahoo --symbol "GC=F" --label XAUUSD --entry-tf 5m --htf 1h
 
 # 4) Kripto / simbol lain
-python run.py --symbol BTCUSDT --label BTCUSDT --entry-tf 15m --htf 4h
+python -m backend.run --symbol BTCUSDT --label BTCUSDT --entry-tf 15m --htf 4h
 ```
 
-**Provider data & fallback otomatis** (`binance_feed.py`):
+**Provider data & fallback otomatis** (`backend/binance_feed.py`):
 - Utama: Binance realtime WS — host utama `api.binance.com`, fallback otomatis ke
   `data-api.binance.vision` (endpoint publik resmi, lolos blokir jaringan umum);
   bisa dioverride env `AT_REST_BASE` / `AT_WS_BASE`.
@@ -48,7 +48,7 @@ python run.py --symbol BTCUSDT --label BTCUSDT --entry-tf 15m --htf 4h
 - Cadangan 2: **Yahoo Finance** chart API — punya emas asli `GC=F` (futures COMEX),
   polling REST (tanpa WS), interval 4h di-resample dari 60m.
 - Chart: **lightweight-charts v5** (library yang sama dengan dashboard Meridian —
-  `web/vendor/`), candle + volume histogram + overlay canvas zona/CHoCH/kotak nilai.
+  `frontend/vendor/`), candle + volume histogram + overlay canvas zona/CHoCH/kotak nilai.
 
 Buka **http://localhost:8788** (WS broadcast di **ws://localhost:8789**, keduanya
 bisa diubah via `AT_PORT` / `AT_WS_PORT`). Sinyal hanya dievaluasi pada candle
@@ -79,7 +79,7 @@ Key testnet di-set lewat `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET
   `XAUUSDT` perpetual (futures). Harga/likuiditas tidak identik dengan XAUUSD
   broker MT4/MT5 — parameter hasil backtest bisa bergeser saat eksekusi di broker.
 - **Engine sangat selektif dengan parameter default** (di data sintetis: 0 sinyal
-  dari 12.000 bar). Sebelum live: jalankan `backtest.py` + `walk_forward()` dengan
+  dari 12.000 bar). Sebelum live: jalankan `backend/backtest.py` + `walk_forward()` dengan
   data historis asli, isi biaya spread riil, tuning `Config` hati-hati (rawan overfit).
 - Semua perhitungan HTF memakai bar yang sudah close; feed gap/reconnect otomatis
   re-seed buffer (backoff 1–60 detik, termasuk batas koneksi 24 jam Binance).
@@ -97,7 +97,7 @@ confidence) · `signals_log`.
 ## Uji cepat
 
 ```bash
-python smoke_test.py        # analytics + engine dengan data sintetis
-python confluence_engine.py # demo engine asli
-python backtest.py          # demo backtest + walk_forward
+python -m backend.smoke_test        # analytics + engine dengan data sintetis
+python -m backend.confluence_engine # demo engine asli
+python -m backend.backtest          # demo backtest + walk_forward
 ```

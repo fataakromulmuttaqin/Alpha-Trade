@@ -1,5 +1,5 @@
 # Dependency riset/opsional — tidak dibutuhkan untuk menjalankan Alpha-Trade dasar
-# Install: pip install -r requirements-research.txt
+# Install: pip install -r backend/requirements-research.txt
 #
 # catatan:
 # - pandas-ta asli ditarik dari PyPI & butuh py>=3.12 -> pakai fork pandas-ta-classic

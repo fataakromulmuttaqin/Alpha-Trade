@@ -1,7 +1,7 @@
 """
 Alpha-Trade dashboard server (pola sama dengan Meridian server.js)
 ------------------------------------------------------------------
-- HTTP  : static file dari web/ + REST API  (port default 8788)
+- HTTP  : static file dari frontend/ + REST API  (port default 8788)
 - WS    : broadcast snapshot & candle update (port default 8789)
 
 REST:
@@ -23,7 +23,8 @@ from urllib.parse import urlparse, parse_qs
 
 import websockets
 
-WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WEB_DIR = os.path.join(PROJECT_ROOT, "frontend")
 MIME = {".html": "text/html", ".js": "application/javascript",
         ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml",
         ".ico": "image/x-icon", ".json": "application/json"}

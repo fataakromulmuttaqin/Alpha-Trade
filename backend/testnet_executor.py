@@ -20,7 +20,7 @@ from urllib.parse import urlencode
 
 import requests
 
-from confluence_engine import position_size
+from .confluence_engine import position_size
 
 BASE = {"spot": "https://testnet.binance.vision",
         "futures": "https://testnet.binancefuture.com"}

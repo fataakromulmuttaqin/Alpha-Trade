@@ -13,13 +13,13 @@ Semua panel dihitung dari OHLCV yang sudah close (tanpa lookahead):
 import numpy as np
 import pandas as pd
 
-from confluence_engine import Config, atr as atr_fn, ema, generate_signals, rsi
-from godmode_engine import (ai_reasoning, classify_setup, choch_recent,
+from .confluence_engine import Config, atr as atr_fn, ema, generate_signals, rsi
+from .godmode_engine import (ai_reasoning, classify_setup, choch_recent,
                             confluence_godmode, events_full, forecast, fvg_zones,
                             market_condition, multi_zones, order_blocks,
                             rsi_divergence_recent, session_info, structure_label,
                             trend_lamps, two_stage)
-from smc_structure import structure_events
+from .smc_structure import structure_events
 
 
 # ----------------------------- Volume flow ----------------------------------
@@ -212,7 +212,7 @@ def heatmap_row(df):
 # ----------------------------- Confluence AI --------------------------------
 def confluence(df, df_htf, cfg):
     """Checklist ala panel AI CONFLUENCE: tiap cek bernilai 25."""
-    from confluence_engine import htf_trend
+    from .confluence_engine import htf_trend
     trend = htf_trend(df, cfg, df_htf)
     htf_dir = int(trend.iloc[-1])
 

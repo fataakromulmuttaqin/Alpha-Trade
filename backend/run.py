@@ -2,9 +2,9 @@
 Alpha-Trade runner — feed + engine + dashboard dalam satu proses.
 -----------------------------------------------------------------
 Live (Binance, multi-TF native):
-  python run.py --symbol PAXGUSDT --entry-tf 15m --htf 4h
+  python -m backend.run --symbol PAXGUSDT --entry-tf 15m --htf 4h
 Demo offline (data sintetis, tanpa internet):
-  python run.py --demo
+  python -m backend.run --demo
 Dashboard : http://localhost:8788   |   WS broadcast: ws://localhost:8789
 Eksekusi  : EXECUTION_MODE=off|paper|testnet  (lihat testnet_executor.py)
 """
@@ -16,11 +16,11 @@ import time
 import numpy as np
 import pandas as pd
 
-from analytics import build_snapshot
-from binance_feed import MultiFeed, INTERVAL_MS
-from confluence_engine import Config, generate_signals
-from server import DashboardServer
-from testnet_executor import TestnetExecutor
+from .analytics import build_snapshot
+from .binance_feed import MultiFeed, INTERVAL_MS
+from .confluence_engine import Config, generate_signals
+from .server import DashboardServer
+from .testnet_executor import TestnetExecutor
 
 
 class AppState:
@@ -63,7 +63,7 @@ class AppState:
 
     def apply_settings(self, body):
         """POST /api/settings: sensitivity + exit_protocol -> preset Config."""
-        from godmode_engine import apply_mode
+        from .godmode_engine import apply_mode
         out = {"applied": []}
         sens = body.get("sensitivity")
         if sens in ("golden", "aggressive", "standard", "precision", "pingpong"):

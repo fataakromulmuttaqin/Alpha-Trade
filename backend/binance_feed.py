@@ -20,7 +20,7 @@ import time
 import pandas as pd
 import requests
 
-from confluence_engine import Config, generate_signals
+from .confluence_engine import Config, generate_signals
 
 # Kandidat host: utama + fallback publik (data-api.binance.vision = endpoint
 # resmi khusus data pasar; berguna bila api.binance.com diblokir jaringan).

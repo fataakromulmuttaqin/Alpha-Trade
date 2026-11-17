@@ -24,8 +24,8 @@ Komponen:
 import numpy as np
 import pandas as pd
 
-from confluence_engine import atr as atr_fn, ema, rsi
-from smc_structure import structure_events
+from .confluence_engine import atr as atr_fn, ema, rsi
+from .smc_structure import structure_events
 
 PIP = 10.0  # XAUUSD: 1 pip = 0.1 pt -> strength poin = pt; 25 pips = 2.5 pt
 
@@ -245,7 +245,7 @@ def events_full(df, L=5, sweep_lookback=20, max_events=8):
 # ----------------------------- Confluence GODMODE ---------------------------
 def confluence_godmode(df, df_htf, cfg, zones_multi, vol_flow, htf_label=None):
     """Skor 0-100: HTF 20 + Zone 20-30 + Sweep 20 + 2-Candle 20 + bonus konteks."""
-    from confluence_engine import htf_trend
+    from .confluence_engine import htf_trend
     trend = htf_trend(df, cfg, df_htf)
     htf_dir = int(trend.iloc[-1])
     c = float(df["close"].iloc[-1])

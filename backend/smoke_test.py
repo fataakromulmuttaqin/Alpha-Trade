@@ -2,8 +2,9 @@
 import numpy as np
 import pandas as pd
 
-from analytics import build_snapshot, events_list, heatmap_row, zones, volume_flow
-from confluence_engine import Config, generate_signals
+from .analytics import build_snapshot, events_list, heatmap_row, zones, volume_flow
+from .confluence_engine import Config, generate_signals
+from . import godmode_engine
 
 rng = np.random.default_rng(7)
 n = 1200
@@ -36,9 +37,9 @@ print("== heatmap:", snap["heatmap"])
 print("SMOKE OK")
 
 # --- GODMODE layer ---
-print("== market_condition:", __import__("godmode_engine").market_condition(df))
-print("== trend_lamps:", __import__("godmode_engine").trend_lamps(df, hdf))
-print("== zones_multi:", __import__("godmode_engine").multi_zones(df, 2.0))
+print("== market_condition:", godmode_engine.market_condition(df))
+print("== trend_lamps:", godmode_engine.trend_lamps(df, hdf))
+print("== zones_multi:", godmode_engine.multi_zones(df, 2.0))
 print("== two_stage:", snap["two_stage"])
 print("== session:", snap["session"])
 print("== setup_label:", snap["setup_label"])

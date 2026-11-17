@@ -8,8 +8,8 @@ Aturan eksekusi (konservatif):
 """
 import numpy as np
 import pandas as pd
-from confluence_engine import Config, generate_signals
-from smc_structure import structure_confirms
+from .confluence_engine import Config, generate_signals
+from .smc_structure import structure_confirms
 
 
 def backtest(df, signals, cost=0.0, risk_pct=1.0, equity0=10_000.0,
