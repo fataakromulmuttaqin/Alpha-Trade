@@ -121,7 +121,7 @@ def _yfinance_df(symbol, interval, bars):
 
     step_ms = INTERVAL_MS.get(interval, 60_000)
     df["close_time"] = (
-        df.index.astype("int64") // 10 ** 6 + step_ms - 1
+        df.index.as_unit("ms").asi8 + step_ms - 1
     ).astype("int64")
 
     # Buang candle yang belum close (candle berjalan)
