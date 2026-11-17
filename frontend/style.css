@@ -286,3 +286,8 @@ button { cursor: pointer; font-family: inherit; }
 
 /* footer + tombol reset layout */
 .footer-note { display: flex; align-items: center; gap: 10px; }
+
+/* saat menyeret splitter */
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .hsplit { cursor: row-resize; }
+.vsplit, .hsplit { transition: background .15s; }

@@ -925,23 +925,82 @@ async function restoreMode() {
    Posisi tersimpan di localStorage (awali "at-") dan dipulihkan saat load. */
 function initSplitters() {
   const root = document.documentElement;
-  const lsNum = (k, def) => {
-    const v = parseFloat(localStorage.getItem("at-" + k));
-    return isNaN(v) ? def : v;
-  };
-  const setVar = (k, v, persist) => {
-    root.style.setProperty(k, v + "px");
-    if (persist) localStorage.setItem("at-" + k.slice(2), v);
-  };
-  // pulihkan layout tersimpan — DENGAN clamp pengaman (nilai rusak diabaikan)
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // pulihkan layout tersimpan — dengan clamp pengaman (nilai rusak diabaikan)
   const restore = (k, min, max) => {
-    const v = lsNum(k, 0);
-    if (v >= min && v <= max) root.style.setProperty("--" + k, v + "px");
+    const v = parseFloat(localStorage.getItem("at-" + k));
+    if (!isNaN(v) && v >= min && v <= max) root.style.setProperty("--" + k, v + "px");
   };
   restore("rail-w", 240, 560);
   restore("b1", 320, 760);
   restore("b2", 300, 760);
   restore("bh", 420, 1000);
+
+  // simpan posisi sekarang ke localStorage
+  const persist = () => {
+    const cs = getComputedStyle(root);
+    [["at-rail-w", "--rail-w"], ["at-b1", "--b1"], ["at-b2", "--b2"], ["at-bh", "--bh"]]
+      .forEach(([key, cssv]) => {
+        const v = parseFloat(cs.getPropertyValue(cssv));
+        if (!isNaN(v)) localStorage.setItem(key, v);
+      });
+  };
+
+  /* drag DELTA 1:1 — nilai awal diukur dari elemen nyata saat mousedown,
+     lalu digeser sejauh pergerakan mouse. Handle selalu menempel di kursor. */
+  const makeDrag = (el, getStart, apply, defaults) => {
+    if (!el) return;
+    el.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const startX = e.clientX, startY = e.clientY;
+      const startVal = getStart();                       // ukur KONDISI NYATA
+      el.classList.add("drag");
+      document.body.classList.add("resizing");
+      const move = (ev) => apply(startVal, ev.clientX - startX, ev.clientY - startY);
+      const up = () => {
+        el.classList.remove("drag");
+        document.body.classList.remove("resizing");
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+        persist();
+      };
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+    });
+    if (defaults) el.addEventListener("dblclick", () => {   // dobel-klik = reset sumbu ini
+      defaults.forEach(([k, v]) => {
+        if (v === null) { root.style.removeProperty(k); localStorage.removeItem("at-" + k.slice(2)); }
+        else root.style.setProperty(k, v + "px");
+      });
+      persist();
+    });
+  };
+
+  // lebar rail kanan: seret KIRI untuk melebarkan (1:1)
+  makeDrag($("vs-main"),
+    () => document.querySelector(".rail").getBoundingClientRect().width,
+    (start, dx) => root.style.setProperty("--rail-w", clamp(start - dx, 240, 560) + "px"),
+    [["--rail-w", null]]);
+
+  // lebar kolom bawah kiri: seret KANAN untuk melebarkan
+  makeDrag($("vs-b1"),
+    () => document.querySelector(".zone-card").getBoundingClientRect().width,
+    (start, dx) => root.style.setProperty("--b1", clamp(start + dx, 320, 760) + "px"),
+    [["--b1", null]]);
+
+  // lebar kolom bawah tengah: seret KANAN untuk melebarkan
+  makeDrag($("vs-b2"),
+    () => document.querySelector(".mid-col").getBoundingClientRect().width,
+    (start, dx) => root.style.setProperty("--b2", clamp(start + dx, 300, 760) + "px"),
+    [["--b2", null]]);
+
+  // tinggi baris bawah: seret ATAS untuk menambah tinggi
+  makeDrag($("hs-main"),
+    () => document.querySelector(".bottom-grid").getBoundingClientRect().height,
+    (start, dx, dy) => root.style.setProperty("--bh", clamp(start - dy, 420, 1000) + "px"),
+    [["--bh", null]]);
+
   // tombol reset layout
   const rb = $("btn-reset-layout");
   if (rb) rb.addEventListener("click", () => {
@@ -950,45 +1009,6 @@ function initSplitters() {
       root.style.removeProperty("--" + k);
     });
     location.reload();
-  });
-  const drag = (el, onMove) => {
-    if (!el) return;
-    el.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      el.classList.add("drag");
-      const move = (ev) => onMove(ev);
-      const up = () => {
-        el.classList.remove("drag");
-        document.removeEventListener("mousemove", move);
-        document.removeEventListener("mouseup", up);
-      };
-      document.addEventListener("mousemove", move);
-      document.addEventListener("mouseup", up);
-    });
-  };
-  // lebar rail kanan (chart menyusut mengikuti)
-  drag($("vs-main"), (ev) => {
-    const r = document.querySelector(".main-grid").getBoundingClientRect();
-    const w = Math.min(560, Math.max(280, r.right - ev.clientX - 10));
-    setVar("--rail-w", w, true);
-  });
-  // lebar kolom bawah kiri
-  drag($("vs-b1"), (ev) => {
-    const r = document.querySelector(".bottom-grid").getBoundingClientRect();
-    const w = Math.min(r.width - 720, Math.max(320, ev.clientX - r.left - 12));
-    setVar("--b1", w, true);
-  });
-  // lebar kolom bawah tengah
-  drag($("vs-b2"), (ev) => {
-    const r = document.querySelector(".bottom-grid").getBoundingClientRect();
-    const b1 = lsNum("b1", r.width * 0.3);
-    const w = Math.min(r.width - b1 - 400, Math.max(300, ev.clientX - r.left - b1 - 20));
-    setVar("--b2", w, true);
-  });
-  // tinggi baris bawah
-  drag($("hs-main"), (ev) => {
-    const h = Math.min(window.innerHeight - 200, Math.max(420, window.innerHeight - ev.clientY - 40));
-    setVar("--bh", h, true);
   });
 }
 
