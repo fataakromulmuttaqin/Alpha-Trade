@@ -21,3 +21,4 @@ NUL
 
 # log runtime
 *.log
+_*.py
