@@ -86,6 +86,10 @@ class DashboardServer:
                 if u.path == "/api/sim":
                     return self._json({"stats": srv.state.sim.summary(),
                                        "trades": srv.state.sim.snapshot_list(50)})
+                if u.path == "/api/news":
+                    items = srv.state.news_feed.maybe_refresh()
+                    return self._json({"items": items, "count": len(items),
+                                       "updated": srv.state.news_feed.updated})
                 if u.path == "/api/research":
                     rp = os.path.join(PROJECT_ROOT, "cache", "research_report.json")
                     if not os.path.isfile(rp):

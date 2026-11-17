@@ -19,6 +19,7 @@ import pandas as pd
 from .analytics import build_snapshot
 from .binance_feed import MultiFeed, INTERVAL_MS
 from .confluence_engine import Config, generate_signals
+from .news_feed import NewsFeed
 from .paper_sim import PaperSim, START_EQUITY
 from .server import DashboardServer
 from .testnet_executor import TestnetExecutor
@@ -47,6 +48,7 @@ class AppState:
         self.demo = False
         self.deep_history = {}                       # tf -> df history tradoor (chart ALL)
         self.sim = PaperSim()                        # simulasi eksekusi internal
+        self.news_feed = NewsFeed()                  # berita 3 provider + fallback
         self._view_cache = {}                        # view_tf -> (ts, snap)
 
     # ---- dipakai DashboardServer
@@ -188,6 +190,9 @@ class AppState:
                             "exit_protocol": self.exit_protocol}
             snap["sim"] = {"stats": self.sim.summary(),
                            "trades": self.sim.snapshot_list(20)}
+            snap["news"] = {"items": self.news_feed.top_for_chart(3),
+                            "count": len(self.news_feed.items),
+                            "updated": self.news_feed.updated}
             self._annotate_setup(snap)
         return snap
 
@@ -557,6 +562,8 @@ async def main():
     server = DashboardServer(state, args.port, args.ws_port)
     state.server = server
     await server.start()
+    state.news_feed.maybe_refresh()                  # berita awal
+    state.news_feed.start_background(300)            # refresh tiap 5 menit (cek TTL)
 
     if args.demo:
         state.entry_tf, state.htf = "5m", "4h"

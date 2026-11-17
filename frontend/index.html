@@ -27,6 +27,7 @@
     <button class="chip toggle on" data-toggle="RR">RR: ON</button>
     <button class="chip toggle on" data-toggle="LIMIT">LIMIT: ON</button>
     <button class="chip toggle on" data-toggle="PDHL">PDH/PDL: ON</button>
+    <button class="chip toggle on" data-toggle="NEWS">NEWS: ON</button>
     <span class="sync-status"><span class="dot"></span> SYNCED <span id="sync-time">--:--:--</span></span>
     <button class="btn-gold" id="btn-sync">SYNC</button>
   </div>
@@ -201,6 +202,11 @@
   <div class="card events-card">
     <div class="card-head"><div class="card-title">MARKET STRUCTURE EVENTS <span class="info">ⓘ</span></div><span class="chip chip-dim" id="events-state">--</span></div>
     <div id="events-list" class="events-list"></div>
+  </div>
+
+  <div class="card news-card" id="news-card">
+    <div class="card-head"><div class="card-title">MARKET NEWS <span class="info" id="news-updated"></span></div><span class="chip chip-dim" id="news-count">0</span></div>
+    <div id="news-list" class="news-list"></div>
   </div>
 
   <!-- right bottom: heatmap + setup + journal + log -->

@@ -179,7 +179,7 @@ function drawOverlays() {
     line("BASE", ev.price, { color: isMajor ? "rgba(234,57,67,.9)" : "rgba(234,57,67,.55)",
       title: "", style: DASH, width: isMajor ? 2 : 1 });
   });
-  /* markers: sinyal saja (CHoCH sudah sebagai garis) */
+  /* markers: sinyal (CHoCH sudah sebagai garis) + berita (maks 3, toggle NEWS) */
   const markers = [];
   if (isEngineTf) {
     (snap.signals_log || []).forEach(s => {
@@ -191,6 +191,22 @@ function drawOverlays() {
         text: `${s.side === "LONG" ? "BUY" : "SELL"}`,
       });
     });
+    /* marker berita: 3 terbaru, dipetakan ke candle yang memuat waktunya */
+    if (state.toggles.NEWS) {
+      const news = [...(snap.news && snap.news.items || [])]
+        .sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 3);
+      const times = state.candles.map(c => c[0] / 1000);
+      news.forEach(n => {
+        const nt = new Date(n.time).getTime() / 1000;
+        let ct = times.find(ct => ct >= nt);              // candle pertama >= waktu berita
+        if (ct === undefined) ct = times[times.length - 1];
+        if (ct === undefined) return;
+        markers.push({
+          time: ct, position: "aboveBar", color: "#2dd4bf", shape: "circle",
+          text: `📰 ${n.verified ? "✓" : ""}${n.source}`,
+        });
+      });
+    }
   }
   markers.sort((a, b) => a.time - b.time);
   state.markersApi.setMarkers(markers);
@@ -562,6 +578,20 @@ function renderSnapshot(snap) {
       <span class="ev-dir ${ev.dir === "UP" ? "up" : "down"}">${ev.dir === "UP" ? "▲ UP" : "▼ DOWN"}</span>
     </div>`).join("") || `<div class="dim-text">— belum ada event</div>`;
 
+  /* market news */
+  const news = snap.news || { items: [], count: 0 };
+  $("news-count").textContent = `${news.count || 0} item`;
+  if (news.updated) $("news-updated").textContent = "· " + news.updated;
+  const newsCard = $("news-card");
+  newsCard.style.opacity = state.toggles.NEWS === false ? 0.35 : 1;
+  $("news-list").innerHTML = (news.items || []).map(n => `
+    <div class="news-row">
+      <span class="ntime">${String(n.time).slice(5, 16).replace("T", " ")}</span>
+      <span class="nsrc">${n.provider}${n.verified ? '<span class="nver">✓✓</span>' : ""}</span>
+      <span class="ntitle">${n.url ? `<a href="${n.url}" target="_blank" rel="noopener">${n.title}</a>` : n.title}
+        ${n.score >= 2 ? '<span class="chip chip-amber" style="padding:1px 6px;font-size:8px;margin-left:6px">IMPACT</span>' : ""}</span>
+    </div>`).join("") || `<div class="dim-text" style="padding:6px 0">— belum ada berita (provider: newsdata.io → finnhub → FMP)</div>`;
+
   /* kartu SIMULASI TRADING (eksekusi internal otomatis) */
   const sim = snap.sim;
   if (sim && sim.stats) {
@@ -779,6 +809,10 @@ function bindUI() {
     b.textContent = b.textContent.replace(/(ON|OFF)$/, state.toggles[name] ? "ON" : "OFF");
     if (name === "CVD" && state.cvdSeries) {
       state.cvdSeries.applyOptions({ visible: state.toggles.CVD });
+    }
+    if (name === "NEWS") {
+      const nc = $("news-card");
+      if (nc) nc.style.opacity = state.toggles.NEWS ? 1 : 0.35;
     }
     if (name === "SND" && state.toggles.SND) beep("single");   // konfirmasi audio aktif
     if (name === "NOTIF" && state.toggles.NOTIF && "Notification" in window

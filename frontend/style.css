@@ -258,3 +258,13 @@ button { cursor: pointer; font-family: inherit; }
 .sim-row .st.OPEN { color: var(--gold); } .sim-row .st.timing { color: var(--dim); }
 
 .setup-status { margin: -2px 0 8px; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+
+/* market news */
+.news-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.news-row { display: grid; grid-template-columns: 82px 74px 1fr; gap: 8px; align-items: start; border-bottom: 1px solid var(--border); padding: 6px 0; }
+.news-row .ntime { color: var(--dim); font-family: var(--mono); font-size: 10px; padding-top: 2px; }
+.news-row .nsrc { font-size: 9px; color: var(--teal); border: 1px solid rgba(45,212,191,.35); border-radius: 4px; padding: 2px 5px; text-align: center; margin-top: 1px; }
+.news-row .ntitle { font-size: 11.5px; line-height: 1.45; }
+.news-row .ntitle a { color: var(--text); text-decoration: none; }
+.news-row .ntitle a:hover { color: var(--gold); }
+.news-row .nver { color: var(--green); font-size: 9px; margin-left: 6px; }
