@@ -685,7 +685,7 @@ function renderResearch(rep) {
     `<div class="rs-title">MONTE CARLO</div>` +
     `<div>E[R] 95% CI: <b>${fmtR(boot.ci95_low_R)}</b> .. <b>${fmtR(boot.ci95_high_R)}</b></div>` +
     `<div>P(E≤0): <b>${fmtP(boot.p_expectancy_le_0)}</b></div>` +
-    `<div>DD median / worst: <b>${dd["maxdd_median_%"]}%</b> / <b>${dd["maxdd_worst_%"]}%</b></div>`;
+    `<div>DD median / worst: <b>${dd["maxdd_median_%"] != null ? dd["maxdd_median_%"] + "%" : "--"}</b> / <b>${dd["maxdd_worst_%"] != null ? dd["maxdd_worst_%"] + "%" : "--"}</b></div>`;
 
   $("rs-risk").innerHTML =
     `<div class="rs-title">RISK GATE</div>` +

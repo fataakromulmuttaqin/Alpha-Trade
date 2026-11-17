@@ -18,7 +18,8 @@ from .ml_gate import train_eval
 from .montecarlo import run as mc_run
 from .significance import significance, trend_gate_signals
 
-OUT = os.path.join("cache", "research_report.json")
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(_REPO_ROOT, "cache", "research_report.json")
 
 
 def build(df, cfg=Config()):
@@ -45,6 +46,8 @@ if __name__ == "__main__":
     data = pd.read_csv(path, index_col=0, parse_dates=True)
     report = build(data)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as f:
+    tmp = OUT + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, default=str)
+    os.replace(tmp, OUT)
     print("wrote", OUT)

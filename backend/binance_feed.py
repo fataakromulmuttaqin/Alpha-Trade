@@ -176,7 +176,7 @@ def _yahoo_chart_df(symbol, interval, bars):
     else:                                                    # resample ke TF besar (mis. 4h)
         out = df.resample(interval).agg({"open": "first", "high": "max", "low": "min",
                                          "close": "last", "volume": "sum"}).dropna()
-        out["close_time"] = (out.index.astype("int64") // 10**6) + INTERVAL_MS[interval] - 1
+        out["close_time"] = (out.index.as_unit("ms").asi8 + INTERVAL_MS[interval] - 1).astype("int64")
     return out.tail(bars)
 
 

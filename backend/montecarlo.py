@@ -50,6 +50,8 @@ def bootstrap_expectancy(r, n=5000, seed=7, ci=0.95):
 
 def run(trades, n_shuffle=1000, n_boot=5000, seed=7, risk_pct=1.0):
     r = trades["R"].to_numpy()
+    if len(r) == 0:
+        return {"bootstrap": {"trades": 0}, "drawdown": {}}
     return {
         "bootstrap": bootstrap_expectancy(r, n=n_boot, seed=seed),
         "drawdown": shuffle_drawdown(r, n=n_shuffle, seed=seed, risk_pct=risk_pct),
