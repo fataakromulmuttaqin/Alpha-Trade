@@ -920,6 +920,65 @@ async function restoreMode() {
   } catch (e) {}
 }
 
+/* ============================== LAYOUT RESIZE ============================== */
+/* splitter bisa diseret: lebar rail, lebar 2 kolom bawah, tinggi baris bawah.
+   Posisi tersimpan di localStorage (awali "at-") dan dipulihkan saat load. */
+function initSplitters() {
+  const root = document.documentElement;
+  const lsNum = (k, def) => {
+    const v = parseFloat(localStorage.getItem("at-" + k));
+    return isNaN(v) ? def : v;
+  };
+  const setVar = (k, v, persist) => {
+    root.style.setProperty(k, v + "px");
+    if (persist) localStorage.setItem("at-" + k.slice(2), v);
+  };
+  // pulihkan layout tersimpan
+  ["rail-w", "b1", "b2", "bh"].forEach(k => {
+    const v = lsNum(k, 0);
+    if (v > 0) root.style.setProperty("--" + k, v + "px");
+  });
+  const drag = (el, onMove) => {
+    if (!el) return;
+    el.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      el.classList.add("drag");
+      const move = (ev) => onMove(ev);
+      const up = () => {
+        el.classList.remove("drag");
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+      };
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+    });
+  };
+  // lebar rail kanan (chart menyusut mengikuti)
+  drag($("vs-main"), (ev) => {
+    const r = document.querySelector(".main-grid").getBoundingClientRect();
+    const w = Math.min(560, Math.max(280, r.right - ev.clientX - 10));
+    setVar("--rail-w", w, true);
+  });
+  // lebar kolom bawah kiri
+  drag($("vs-b1"), (ev) => {
+    const r = document.querySelector(".bottom-grid").getBoundingClientRect();
+    const w = Math.min(r.width - 720, Math.max(320, ev.clientX - r.left - 12));
+    setVar("--b1", w, true);
+  });
+  // lebar kolom bawah tengah
+  drag($("vs-b2"), (ev) => {
+    const r = document.querySelector(".bottom-grid").getBoundingClientRect();
+    const b1 = lsNum("b1", r.width * 0.3);
+    const w = Math.min(r.width - b1 - 400, Math.max(300, ev.clientX - r.left - b1 - 20));
+    setVar("--b2", w, true);
+  });
+  // tinggi baris bawah
+  drag($("hs-main"), (ev) => {
+    const h = Math.min(window.innerHeight - 200, Math.max(420, window.innerHeight - ev.clientY - 40));
+    setVar("--bh", h, true);
+  });
+}
+
 /* chip SIGNAL GOLDEN / SIGNAL HIGH RISK: toggle + kirim ke backend */
 function setSignalChip(id, label, on) {
   const b = $(id);
@@ -947,6 +1006,7 @@ function postSettingsBody(extra = {}) {
 /* ============================== BOOT ============================== */
 async function boot() {
   initChart();
+  initSplitters();
   bindUI();
   restoreMode();
   try {

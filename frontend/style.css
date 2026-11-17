@@ -21,7 +21,9 @@ body {
   background: var(--bg); color: var(--text);
   font-family: "Segoe UI", Inter, Arial, sans-serif;
   font-size: 13px; padding: 10px 14px 24px;
+  min-width: 1024px;         /* zoom tinggi: scroll horizontal, bukan overlap */
 }
+html { overflow-x: auto; }
 button { cursor: pointer; font-family: inherit; }
 .info { color: var(--dim); font-size: 11px; }
 
@@ -90,8 +92,12 @@ button { cursor: pointer; font-family: inherit; }
 .stat-value small { font-size: 11px; color: var(--dim); }
 .stat-sub { color: var(--dim); font-size: 11px; margin-top: 4px; }
 
-/* ---------- main grid ---------- */
-.main-grid { display: grid; grid-template-columns: 1fr 340px; gap: 10px; }
+/* ---------- main grid (resizable lewat splitter) ---------- */
+.main-grid { display: grid; grid-template-columns: minmax(480px, 1fr) 6px var(--rail-w, 340px); gap: 0 8px; align-items: stretch; }
+.vsplit { cursor: col-resize; border-radius: 3px; background: transparent; min-height: 80px; }
+.vsplit:hover, .vsplit.drag { background: var(--border); }
+.hsplit { cursor: row-resize; height: 10px; margin-top: 4px; border-radius: 3px; }
+.hsplit:hover, .hsplit.drag { background: var(--border); }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; flex-wrap: wrap; }
 .card-title { font-size: 11px; letter-spacing: .12em; color: var(--dim); font-weight: 800; }
@@ -144,8 +150,10 @@ button { cursor: pointer; font-family: inherit; }
 #vf-buyers { left: 6px; } #vf-sellers { right: 6px; }
 .vf-caption { display: flex; justify-content: space-between; color: var(--dim); font-size: 10px; margin-top: 6px; }
 
-/* ---------- bottom grid ---------- */
-.bottom-grid { display: grid; grid-template-columns: 1fr 1.15fr 380px; gap: 10px; margin-top: 10px; }
+/* ---------- bottom grid (tinggi & lebar bisa di-resize) ---------- */
+.bottom-grid { display: grid; grid-template-columns: var(--b1, minmax(340px, 1fr)) 6px var(--b2, minmax(340px, 1.1fr)) 6px var(--b3, minmax(300px, 420px)); gap: 0 8px; margin-top: 2px; height: var(--bh, 680px); }
+.bottom-grid > * { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.bottom-grid .events-list { max-height: none; }
 .zone-controls { display: flex; align-items: center; gap: 6px; }
 .zone-controls input { width: 46px; background: var(--panel-2); border: 1px solid var(--border); color: var(--gold); font-family: var(--mono); text-align: center; border-radius: 6px; padding: 3px; }
 .zone-box { border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
