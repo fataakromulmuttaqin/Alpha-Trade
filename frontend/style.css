@@ -153,7 +153,7 @@ button { cursor: pointer; font-family: inherit; }
 .vf-caption { display: flex; justify-content: space-between; color: var(--dim); font-size: 10px; margin-top: 6px; }
 
 /* ---------- bottom grid (tinggi & lebar bisa di-resize) ---------- */
-.bottom-grid { display: grid; grid-template-columns: clamp(320px, var(--b1, 30%), 760px) 6px clamp(300px, var(--b2, 34%), 760px) 6px minmax(300px, 420px); gap: 0 8px; margin-top: 2px; height: clamp(420px, var(--bh, 680px), 1000px); }
+.bottom-grid { display: grid; grid-template-columns: clamp(320px, var(--b1, 30%), 760px) 6px clamp(300px, var(--b2, 34%), 760px) 6px minmax(300px, 1fr); gap: 0 8px; margin-top: 2px; height: clamp(420px, var(--bh, 680px), 1000px); }
 .bottom-grid > * { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .bottom-grid .events-list { max-height: none; }
 .zone-controls { display: flex; align-items: center; gap: 6px; }

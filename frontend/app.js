@@ -5,6 +5,11 @@
    FORECAST (proyeksi ATR). ALARM/SND/NOTIF = alert sinyal. */
 "use strict";
 
+window.__bootErrs = [];
+window.addEventListener("error", (e) => window.__bootErrs.push(String(e.message || e)));
+window.addEventListener("unhandledrejection", (e) =>
+  window.__bootErrs.push("promise: " + String(e.reason && e.reason.message || e.reason)));
+
 const state = {
   chart: null, series: null, candles: [], activeTf: null, engineTf: null,
   snap: null, ws: null, wsBackoff: 1000,
@@ -924,6 +929,7 @@ async function restoreMode() {
 /* splitter bisa diseret: lebar rail, lebar 2 kolom bawah, tinggi baris bawah.
    Posisi tersimpan di localStorage (awali "at-") dan dipulihkan saat load. */
 function initSplitters() {
+  window.__splittersInit = true;
   const root = document.documentElement;
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -947,17 +953,21 @@ function initSplitters() {
       });
   };
 
-  /* drag DELTA 1:1 — nilai awal diukur dari elemen nyata saat mousedown,
-     lalu digeser sejauh pergerakan mouse. Handle selalu menempel di kursor. */
-  const makeDrag = (el, getStart, apply, defaults) => {
+  /* drag DELTA 1:1 — nilai awal + batas min/max diukur saat mousedown
+     (sadar lebar kontainer), sehingga handle selalu menempel di kursor
+     dan tidak ada kolom yang tertinggal/lebih dahulu. */
+  const makeDrag = (el, measure, apply, defaults) => {
     if (!el) return;
     el.addEventListener("mousedown", (e) => {
       e.preventDefault();
       const startX = e.clientX, startY = e.clientY;
-      const startVal = getStart();                       // ukur KONDISI NYATA
+      const { val, min, max, axis } = measure();         // ukur KONDISI NYATA
       el.classList.add("drag");
       document.body.classList.add("resizing");
-      const move = (ev) => apply(startVal, ev.clientX - startX, ev.clientY - startY);
+      const move = (ev) => {
+        const delta = axis === "y" ? startY - ev.clientY : ev.clientX - startX;
+        apply(clamp(val + delta, min, max));
+      };
       const up = () => {
         el.classList.remove("drag");
         document.body.classList.remove("resizing");
@@ -977,28 +987,44 @@ function initSplitters() {
     });
   };
 
-  // lebar rail kanan: seret KIRI untuk melebarkan (1:1)
+  // lebar rail kanan: seret KIRI untuk melebarkan (chart menyusut)
   makeDrag($("vs-main"),
-    () => document.querySelector(".rail").getBoundingClientRect().width,
-    (start, dx) => root.style.setProperty("--rail-w", clamp(start - dx, 240, 560) + "px"),
+    () => {
+      const gw = document.querySelector(".main-grid").getBoundingClientRect().width;
+      return { axis: "x", val: document.querySelector(".rail").getBoundingClientRect().width,
+               min: 240, max: Math.max(280, gw - 500) };
+    },
+    (v) => root.style.setProperty("--rail-w", v + "px"),
     [["--rail-w", null]]);
 
-  // lebar kolom bawah kiri: seret KANAN untuk melebarkan
+  // lebar kolom bawah kiri: seret KANAN untuk melebarkan (kolom lain menyesuaikan)
+  const gridW = () =>
+    document.querySelector(".bottom-grid").getBoundingClientRect().width;
   makeDrag($("vs-b1"),
-    () => document.querySelector(".zone-card").getBoundingClientRect().width,
-    (start, dx) => root.style.setProperty("--b1", clamp(start + dx, 320, 760) + "px"),
+    () => {
+      const gw = gridW();
+      return { axis: "x", val: document.querySelector(".zone-card").getBoundingClientRect().width,
+               min: 320, max: Math.max(380, gw - 640) };
+    },
+    (v) => root.style.setProperty("--b1", v + "px"),
     [["--b1", null]]);
 
   // lebar kolom bawah tengah: seret KANAN untuk melebarkan
   makeDrag($("vs-b2"),
-    () => document.querySelector(".mid-col").getBoundingClientRect().width,
-    (start, dx) => root.style.setProperty("--b2", clamp(start + dx, 300, 760) + "px"),
+    () => {
+      const gw = gridW();
+      const b1w = document.querySelector(".zone-card").getBoundingClientRect().width;
+      return { axis: "x", val: document.querySelector(".mid-col").getBoundingClientRect().width,
+               min: 300, max: Math.max(340, gw - b1w - 340) };
+    },
+    (v) => root.style.setProperty("--b2", v + "px"),
     [["--b2", null]]);
 
   // tinggi baris bawah: seret ATAS untuk menambah tinggi
   makeDrag($("hs-main"),
-    () => document.querySelector(".bottom-grid").getBoundingClientRect().height,
-    (start, dx, dy) => root.style.setProperty("--bh", clamp(start - dy, 420, 1000) + "px"),
+    () => ({ axis: "y", val: document.querySelector(".bottom-grid").getBoundingClientRect().height,
+             min: 420, max: Math.min(1000, window.innerHeight - 180) }),
+    (v) => root.style.setProperty("--bh", v + "px"),
     [["--bh", null]]);
 
   // tombol reset layout
