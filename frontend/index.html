@@ -100,6 +100,7 @@
       <canvas id="overlay"></canvas>
     </div>
   </section>
+  <div class="vsplit" id="vs-main" title="seret untuk ubah lebar panel kanan"></div>
 
   <!-- ---- right rail ---- -->
   <aside class="rail">
@@ -148,7 +149,6 @@
       <div class="vf-caption"><span class="green-text">BUYERS</span> based on last 20 closed candles <span class="red-text">SELLERS</span></div>
     </div>
   </aside>
-  <div class="vsplit" id="vs-main" title="seret untuk ubah lebar panel kanan"></div>
 </main>
 
 <!-- ================= BOTTOM GRID ================= -->
@@ -202,7 +202,8 @@
 
   <div class="vsplit" id="vs-b1" title="seret untuk ubah lebar kolom kiri"></div>
 
-  <!-- structure events -->
+  <!-- kolom tengah: events + news -->
+  <div class="mid-col">
   <div class="card events-card">
     <div class="card-head"><div class="card-title">MARKET STRUCTURE EVENTS <span class="info">ⓘ</span></div><span class="chip chip-dim" id="events-state">--</span></div>
     <div id="events-list" class="events-list"></div>
@@ -211,6 +212,7 @@
   <div class="card news-card" id="news-card">
     <div class="card-head"><div class="card-title">MARKET NEWS <span class="info" id="news-updated"></span></div><span class="chip chip-dim" id="news-count">0</span></div>
     <div id="news-list" class="news-list"></div>
+  </div>
   </div>
 
   <div class="vsplit" id="vs-b2" title="seret untuk ubah lebar kolom tengah"></div>
@@ -262,7 +264,7 @@
   </div>
 </section>
 
-<div class="footer-note"><span id="conn-status" class="dim-text">menghubungkan…</span></div>
+<div class="footer-note"><span id="conn-status" class="dim-text">menghubungkan…</span><button class="btn-ghost sm" id="btn-reset-layout" title="kembalikan posisi semua splitter ke bawaan">RESET LAYOUT</button></div>
 
 <script src="app.js"></script>
 </body>

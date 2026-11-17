@@ -933,10 +933,23 @@ function initSplitters() {
     root.style.setProperty(k, v + "px");
     if (persist) localStorage.setItem("at-" + k.slice(2), v);
   };
-  // pulihkan layout tersimpan
-  ["rail-w", "b1", "b2", "bh"].forEach(k => {
+  // pulihkan layout tersimpan — DENGAN clamp pengaman (nilai rusak diabaikan)
+  const restore = (k, min, max) => {
     const v = lsNum(k, 0);
-    if (v > 0) root.style.setProperty("--" + k, v + "px");
+    if (v >= min && v <= max) root.style.setProperty("--" + k, v + "px");
+  };
+  restore("rail-w", 240, 560);
+  restore("b1", 320, 760);
+  restore("b2", 300, 760);
+  restore("bh", 420, 1000);
+  // tombol reset layout
+  const rb = $("btn-reset-layout");
+  if (rb) rb.addEventListener("click", () => {
+    ["rail-w", "b1", "b2", "bh"].forEach(k => {
+      localStorage.removeItem("at-" + k);
+      root.style.removeProperty("--" + k);
+    });
+    location.reload();
   });
   const drag = (el, onMove) => {
     if (!el) return;

@@ -61,7 +61,8 @@ button { cursor: pointer; font-family: inherit; }
 .label-dim { color: var(--dim); font-size: 11px; letter-spacing: .08em; }
 
 /* ---------- topbar ---------- */
-.topbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 2px 10px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 2px 10px; flex-wrap: wrap; row-gap: 6px; }
+.brand-name, .brand-sub, .sync-status { white-space: nowrap; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-name { font-size: 19px; font-weight: 900; color: var(--gold); letter-spacing: .06em; }
 .brand-sub { color: var(--dim); font-weight: 700; letter-spacing: .08em; }
@@ -92,8 +93,8 @@ button { cursor: pointer; font-family: inherit; }
 .stat-value small { font-size: 11px; color: var(--dim); }
 .stat-sub { color: var(--dim); font-size: 11px; margin-top: 4px; }
 
-/* ---------- main grid (resizable lewat splitter) ---------- */
-.main-grid { display: grid; grid-template-columns: minmax(480px, 1fr) 6px var(--rail-w, 340px); gap: 0 8px; align-items: stretch; }
+/* ---------- main grid (resizable lewat splitter, dengan pengaman) ---------- */
+.main-grid { display: grid; grid-template-columns: minmax(480px, 1fr) 6px clamp(240px, var(--rail-w, 340px), 560px); gap: 0 8px; align-items: stretch; }
 .vsplit { cursor: col-resize; border-radius: 3px; background: transparent; min-height: 80px; }
 .vsplit:hover, .vsplit.drag { background: var(--border); }
 .hsplit { cursor: row-resize; height: 10px; margin-top: 4px; border-radius: 3px; }
@@ -111,7 +112,8 @@ button { cursor: pointer; font-family: inherit; }
 #overlay { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 
 /* ---------- right rail ---------- */
-.rail { display: flex; flex-direction: column; gap: 10px; }
+.rail { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; }
+.mid-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .golden-card { border-color: rgba(217,182,74,.5); text-align: center; }
 .highrisk-card { border-color: rgba(234,57,67,.4); text-align: center; }
 .card-title.gold-text, .card-title.red-text { font-size: 12px; margin-bottom: 6px; }
@@ -151,7 +153,7 @@ button { cursor: pointer; font-family: inherit; }
 .vf-caption { display: flex; justify-content: space-between; color: var(--dim); font-size: 10px; margin-top: 6px; }
 
 /* ---------- bottom grid (tinggi & lebar bisa di-resize) ---------- */
-.bottom-grid { display: grid; grid-template-columns: var(--b1, minmax(340px, 1fr)) 6px var(--b2, minmax(340px, 1.1fr)) 6px var(--b3, minmax(300px, 420px)); gap: 0 8px; margin-top: 2px; height: var(--bh, 680px); }
+.bottom-grid { display: grid; grid-template-columns: clamp(320px, var(--b1, 30%), 760px) 6px clamp(300px, var(--b2, 34%), 760px) 6px minmax(300px, 420px); gap: 0 8px; margin-top: 2px; height: clamp(420px, var(--bh, 680px), 1000px); }
 .bottom-grid > * { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .bottom-grid .events-list { max-height: none; }
 .zone-controls { display: flex; align-items: center; gap: 6px; }
@@ -276,3 +278,11 @@ button { cursor: pointer; font-family: inherit; }
 .news-row .ntitle a { color: var(--text); text-decoration: none; }
 .news-row .ntitle a:hover { color: var(--gold); }
 .news-row .nver { color: var(--green); font-size: 9px; margin-left: 6px; }
+
+/* keterbacaan panel research */
+.research-card .rs-block { font-size: 11px; line-height: 1.55; color: var(--text); margin-bottom: 8px; }
+.research-card .rs-block b { color: var(--gold); }
+.research-card .card-sub { font-size: 10.5px; line-height: 1.5; }
+
+/* footer + tombol reset layout */
+.footer-note { display: flex; align-items: center; gap: 10px; }
