@@ -22,3 +22,6 @@ NUL
 # log runtime
 *.log
 _*.py
+
+# data tradoor (backfill)
+tradoor-data/
