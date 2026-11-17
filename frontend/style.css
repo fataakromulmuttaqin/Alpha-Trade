@@ -256,3 +256,5 @@ button { cursor: pointer; font-family: inherit; }
 .sim-row .st { text-align: right; font-size: 9px; border-radius: 4px; padding: 2px 4px; background: var(--panel-2); }
 .sim-row .st.WIN { color: var(--green); } .sim-row .st.LOSS { color: var(--red); }
 .sim-row .st.OPEN { color: var(--gold); } .sim-row .st.timing { color: var(--dim); }
+
+.setup-status { margin: -2px 0 8px; font-size: 10px; font-weight: 700; letter-spacing: .04em; }

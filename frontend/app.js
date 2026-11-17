@@ -609,7 +609,7 @@ function renderSnapshot(snap) {
   const sc = document.querySelector(".setup-card");
   $("su-label").textContent = su && su.label ? `SETUP: ${su.label}` : (snap.setup_label ? `KANDIDAT: ${snap.setup_label}` : "");
   if (su) {
-    $("setup-title").textContent = `${su.side} TRADE SETUP`;
+    $("setup-title").textContent = su.running ? "POSISI SIMULASI BERJALAN" : `${su.side} TRADE SETUP`;
     sc.classList.toggle("sell", su.side === "SELL");
     sc.classList.toggle("buy", su.side === "BUY");
     $("su-entry").textContent = fmt(su.entry);
@@ -621,6 +621,26 @@ function renderSnapshot(snap) {
     $("setup-title").textContent = "TRADE SETUP";
     sc.classList.remove("sell", "buy");
     ["su-entry", "su-sl", "su-tp1", "su-tp2", "su-rr"].forEach(id => $(id).textContent = "--");
+  }
+
+  /* status koneksi setup <-> filter <-> simulasi */
+  const ss = $("su-status");
+  if (su && su.sim_status === "OPEN") {
+    ss.textContent = `● BERJALAN DI SIMULASI ${su.sim_r !== null && su.sim_r !== undefined ? `(${su.sim_r >= 0 ? "+" : ""}${fmt(su.sim_r, 2)}R)` : ""}`;
+    ss.className = "setup-status gold-text";
+  } else if (su && su.sim_status && ["WIN", "LOSS", "BE+", "TIME"].includes(su.sim_status)) {
+    const r = su.sim_r;
+    ss.textContent = `SELESAI DI SIMULASI: ${su.sim_status} ${r !== null ? `(${r >= 0 ? "+" : ""}${fmt(r, 2)}R)` : ""}`;
+    ss.className = "setup-status " + (r >= 0 ? "green-text" : "red-text");
+  } else if (su && su.executable === false) {
+    ss.textContent = `DISARING — tidak dieksekusi (SIGNAL ${su.kind}: OFF)`;
+    ss.className = "setup-status red-text";
+  } else if (su && su.fresh) {
+    ss.textContent = "SIAP — entry di open candle berikutnya (simulasi + eksekusi)";
+    ss.className = "setup-status gold-text";
+  } else {
+    ss.textContent = su ? "Menunggu candle berikutnya…" : "Belum ada sinyal di buffer";
+    ss.className = "setup-status dim-text";
   }
 
   /* log */

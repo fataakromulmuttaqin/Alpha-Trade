@@ -19,7 +19,7 @@ import pandas as pd
 from .analytics import build_snapshot
 from .binance_feed import MultiFeed, INTERVAL_MS
 from .confluence_engine import Config, generate_signals
-from .paper_sim import PaperSim
+from .paper_sim import PaperSim, START_EQUITY
 from .server import DashboardServer
 from .testnet_executor import TestnetExecutor
 from .tradoor_feed import TradoorFeed
@@ -188,7 +188,70 @@ class AppState:
                             "exit_protocol": self.exit_protocol}
             snap["sim"] = {"stats": self.sim.summary(),
                            "trades": self.sim.snapshot_list(20)}
+            self._annotate_setup(snap)
         return snap
+
+    def _annotate_setup(self, snap):
+        """Hubungkan TRADE SETUP dengan filter + simulasi:
+        - setup lolos filter?  -> executable True/False
+        - status eksekusinya di simulator (OPEN / WIN / LOSS / BE+ / TIME / FILTERED)
+        - bila tidak ada setup baru tapi ada posisi sim berjalan -> tampilkan
+          posisi berjalan itu sebagai setup (dengan status OPEN + R live)."""
+        if not snap:
+            return
+        sim_open = self.sim.open
+        sim_hist = self.sim.trades
+
+        def sim_status_for(sig_time):
+            norm = lambda s: str(s).replace("T", " ")[:19]   # isoformat vs str(Timestamp)
+            for t in sim_open:
+                if norm(t.get("sig_time")) == norm(sig_time):
+                    return "OPEN", t.get("r", 0.0)
+            for t in reversed(sim_hist):
+                if norm(t.get("sig_time")) == norm(sig_time):
+                    return t.get("status"), t.get("r", 0.0)
+            return None, None
+
+        su = snap.get("setup")
+        if su:
+            kind = "GOLDEN" if su.get("score", 0) >= 3 else "HIGH RISK"
+            allowed = (kind == "GOLDEN" and self.signal_golden) or \
+                      (kind == "HIGH RISK" and self.signal_high_risk)
+            su["kind"] = kind
+            su["executable"] = allowed
+            st, r = sim_status_for(su.get("time"))
+            su["sim_status"] = st or ("FILTERED" if not allowed else "QUEUED")
+            su["sim_r"] = r
+        elif sim_open:
+            # tidak ada setup baru, tapi ada posisi simulasi berjalan -> tampilkan
+            t = sim_open[-1]
+            snap["setup"] = {
+                "side": t["side"], "time": t.get("sig_time", t["time"]),
+                "entry": t["entry"], "sl": t["sl"], "tp1": t["tp1"], "tp2": t["tp2"],
+                "rr": f"1:{abs(t['tp2'] - t['entry']) / (abs(t['entry'] - t['sl']) or 1e-9):.0f}",
+                "score": 0, "reason": "posisi simulasi berjalan", "fresh": False,
+                "kind": t.get("kind", ""), "executable": True,
+                "sim_status": "OPEN", "sim_r": t.get("r", 0.0), "running": True,
+            }
+            if "setup_label" in snap:
+                snap["setup_label"] = f"RUNNING · {t.get('kind', '')}"
+        elif snap.get("signals_log"):
+            # sinyal terakhir ada di deep history (di luar buffer) -> tampilkan
+            # rencananya + hasil simulasinya (WIN/LOSS/BE+ kalau sudah dieksekusi)
+            e = snap["signals_log"][0]
+            allowed = (e.get("kind") == "GOLDEN" and self.signal_golden) or \
+                      (e.get("kind") == "HIGH RISK" and self.signal_high_risk)
+            st_, r_ = sim_status_for(e.get("time"))
+            snap["setup"] = {
+                "side": e["side"], "time": e["time"],
+                "entry": e["entry"], "sl": e["sl"], "tp1": e["tp1"], "tp2": e["tp2"],
+                "rr": f"1:{abs(e['tp2'] - e['entry']) / (abs(e['entry'] - e['sl']) or 1e-9):.0f}",
+                "score": e.get("score", 0),
+                "reason": "sinyal terakhir (deep history)", "fresh": False,
+                "kind": e.get("kind", ""), "executable": allowed,
+                "sim_status": st_ or ("FILTERED" if not allowed else "QUEUED"),
+                "sim_r": r_,
+            }
 
     def recompute_signal_history(self, bars=25_000):
         """Hitung ulang sinyal historis dengan config mode yang baru — inilah
@@ -377,7 +440,7 @@ def sim_replay(state, bars=25_000):
         sig = generate_signals(src, cfg, htf_df=htf_buf)
         sig_times = set(sig.index)
         state.sim.trades, state.sim.open, state.sim.pending = [], [], None
-        state.sim.equity = PaperSim().equity
+        state.sim.equity = START_EQUITY                 # reset BENERAN ke $10.000
         for t, row in src.iterrows():
             state.sim.on_candle(t, row["open"], row["high"], row["low"], row["close"])
             if t in sig_times:
