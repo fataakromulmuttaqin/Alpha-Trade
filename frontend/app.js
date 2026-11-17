@@ -315,6 +315,20 @@ function drawCanvas() {
       bx += w + 6;
     });
   }
+
+  /* badge MODE analisis (sensitivity + exit protocol) di kanan atas */
+  const mode = snap.mode;
+  if (mode && mode.sensitivity) {
+    const txt = `MODE: ${mode.sensitivity.toUpperCase()} · ${(mode.exit_protocol || "").toUpperCase()}`;
+    ctx.font = "bold 10px 'Segoe UI', sans-serif";
+    const w = ctx.measureText(txt).width + 14;
+    ctx.fillStyle = "rgba(10,12,16,0.78)";
+    ctx.fillRect(W - w - 74, 8, w, 18);
+    ctx.strokeStyle = "#d9b64a";
+    ctx.strokeRect(W - w - 73.5, 8.5, w - 1, 17);
+    ctx.fillStyle = "#d9b64a";
+    ctx.fillText(txt, W - w - 66, 21);
+  }
 }
 
 /* ============================== ALERT (ALARM/SND/NOTIF) ============================== */

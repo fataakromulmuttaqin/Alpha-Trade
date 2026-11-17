@@ -41,6 +41,7 @@ class Config:
     atr_pct_low: float = 0.20       # skip jika volatilitas terlalu rendah
     atr_pct_high: float = 0.95      # skip jika terlalu ekstrem
     min_confluence: int = 4         # dari 4 gate (MOM/VP/PA/VOL) harus lolos; 4 = AND ketat lama
+    gate_trend: bool = True         # False = PING PONG (tanpa syarat tren HTF)
     atr_rank_window: int = 500
     cooldown: int = 10              # jeda antar sinyal (bar)
     risk_pct: float = 1.0           # % ekuitas per trade
@@ -204,11 +205,16 @@ def generate_signals(df, cfg=Config(), htf_df=None):
     atr_rank = d["atr"].rolling(cfg.atr_rank_window, min_periods=100).rank(pct=True)
     g_vol = (atr_rank >= cfg.atr_pct_low) & (atr_rank <= cfg.atr_pct_high)
 
-    # gabungan: TREND wajib; MOM/VP/PA/VOL cukup min_confluence dari 4 (default 4 = AND lama)
+    # gabungan: TREND wajib (kecuali gate_trend=False utk PING PONG sideways);
+    # MOM/VP/PA/VOL cukup min_confluence dari 4 (default 4 = AND ketat)
     n_l = (g_mom_l.astype(int) + g_vp_l.astype(int) + g_pa_l.astype(int) + g_vol.astype(int))
     n_s = (g_mom_s.astype(int) + g_vp_s.astype(int) + g_pa_s.astype(int) + g_vol.astype(int))
-    long_ok = g_trend_l & (n_l >= cfg.min_confluence)
-    short_ok = g_trend_s & (n_s >= cfg.min_confluence)
+    if cfg.gate_trend:
+        long_ok = g_trend_l & (n_l >= cfg.min_confluence)
+        short_ok = g_trend_s & (n_s >= cfg.min_confluence)
+    else:
+        long_ok = n_l >= cfg.min_confluence
+        short_ok = n_s >= cfg.min_confluence
 
     # skor kualitas (bonus, bukan gate)
     score_l = (sw_bull.astype(int) + _recent(bull_div, w).astype(int)

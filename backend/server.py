@@ -122,8 +122,12 @@ class DashboardServer:
                     body = json.loads(self.rfile.read(length) or b"{}")
                 except Exception:
                     return self._json({"error": "body JSON tidak valid"}, 400)
+                before = (srv.state.sensitivity, srv.state.exit_protocol)
                 result = srv.state.apply_settings(body)
-                srv.state.rebuild_and_broadcast()       # dashboard langsung update
+                mode_changed = (srv.state.sensitivity, srv.state.exit_protocol) != before
+                # mode analisis berubah -> hitung ulang sinyal historis agar
+                # marker di chart langsung mencerminkan mode baru
+                srv.state.rebuild_and_broadcast(recompute_signals=mode_changed)
                 return self._json(result)
 
         return H

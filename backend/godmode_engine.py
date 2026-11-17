@@ -24,7 +24,7 @@ Komponen:
 import numpy as np
 import pandas as pd
 
-from .confluence_engine import atr as atr_fn, ema, rsi
+from .confluence_engine import Config, atr as atr_fn, ema, rsi
 from .smc_structure import structure_events
 
 
@@ -50,36 +50,58 @@ PIP = 10.0  # XAUUSD: 1 pip = 0.1 pt -> strength poin = pt; 25 pips = 2.5 pt
 
 
 # ----------------------------- Preset mode (header GODMODE) -----------------
+# Tiap preset adalah KONFIGURASI ANALISIS yang berbeda sungguhan:
+#   golden     : Elite — semua gate, AND ketat (min_confluence 4)
+#   aggressive : Momentum Pulse — cukup 1 gate lain, konfirmasi 1 bar, RSI 50/50
+#   standard   : Balanced — 3 dari 4 gate, konfirmasi 2 bar
+#   precision  : Confluence sniper — 4/4 gate, zona 0.5 ATR, RSI 35/65
+#   pingpong   : Sideways — TANPA syarat tren HTF, main di zona (RSI 30/70)
 SENSITIVITY_PRESETS = {
-    # goldendefault = parameter dasar (GOLDEN SIGNAL Elite: selektif penuh)
-    "golden":    {},
-    "aggressive": {"confirm_window": 1, "rsi_pull_long": 50, "rsi_pull_short": 50,
-                   "atr_pct_low": 0.05, "cooldown": 5},
-    "standard":  {"confirm_window": 2},
-    "precision": {"confirm_window": 4, "cooldown": 20, "vp_prox_atr": 0.5},
-    "pingpong":  {"rsi_pull_long": 45, "rsi_pull_short": 55, "vp_prox_atr": 1.0,
-                  "atr_pct_low": 0.05},
+    "golden":    {"min_confluence": 4, "confirm_window": 3, "cooldown": 10,
+                  "rsi_pull_long": 40, "rsi_pull_short": 60, "vp_prox_atr": 0.75,
+                  "atr_pct_low": 0.20, "atr_pct_high": 0.95, "gate_trend": True},
+    "aggressive": {"min_confluence": 1, "confirm_window": 1, "cooldown": 5,
+                   "rsi_pull_long": 50, "rsi_pull_short": 50, "atr_pct_low": 0.05,
+                   "gate_trend": True},
+    "standard":  {"min_confluence": 3, "confirm_window": 2, "cooldown": 8,
+                  "rsi_pull_long": 40, "rsi_pull_short": 60, "gate_trend": True},
+    "precision": {"min_confluence": 4, "confirm_window": 4, "cooldown": 20,
+                  "vp_prox_atr": 0.5, "atr_pct_low": 0.10, "atr_pct_high": 0.90,
+                  "rsi_pull_long": 35, "rsi_pull_short": 65, "gate_trend": True},
+    "pingpong":  {"min_confluence": 3, "confirm_window": 2, "cooldown": 6,
+                  "gate_trend": False, "rsi_pull_long": 30, "rsi_pull_short": 70,
+                  "vp_prox_atr": 1.0, "atr_pct_low": 0.05},
 }
 
+# Exit protocol mengubah multipliier SL/TP ala GODMODE
 EXIT_PRESETS = {
-    "quick": {},                                   # DYNAMIC TRAILING (default engine)
-    "nitro": {"tp1_rr": 1.0, "tp2_rr": 1.5, "sl_atr_max": 2.0},   # NITRO SCALP
-    "hold":  {"tp1_rr": 2.0, "tp2_rr": 4.0, "max_hold_bars": None},  # INSTITUTIONAL HOLD
+    "quick": {"tp1_rr": 1.5, "tp2_rr": 3.0, "sl_atr_max": 2.5, "sl_atr_min": 1.0},
+    "nitro": {"tp1_rr": 1.0, "tp2_rr": 1.5, "sl_atr_max": 2.0, "sl_atr_min": 0.8},
+    "hold":  {"tp1_rr": 2.0, "tp2_rr": 4.0, "sl_atr_max": 3.0, "sl_atr_min": 1.2,
+              "cooldown": 30},
 }
+
+# kunci yang dikelola preset — dikembalikan ke default sebelum tiap apply
+_MANAGED_KEYS = sorted({k for v in list(SENSITIVITY_PRESETS.values()) +
+                        list(EXIT_PRESETS.values()) for k in v})
+_DEFAULTS = {}
 
 
 def apply_mode(cfg, sensitivity=None, exit_protocol=None):
-    """Terapkan preset mode ke Config (mutasi in-place). None = biarkan."""
-    from dataclasses import fields as dc_fields
-    valid = {f.name for f in dc_fields(cfg)}
+    """Terapkan preset mode ke Config (mutasi in-place).
+    Kunci yang dikelola preset DI-RESET ke default dulu, sehingga pindah
+    aggressive -> golden tidak meninggalkan nilai lama menempel."""
+    global _DEFAULTS
+    if not _DEFAULTS:
+        _DEFAULTS = {k: getattr(Config(), k) for k in _MANAGED_KEYS}
+    for k in _MANAGED_KEYS:                          # reset ke default
+        setattr(cfg, k, _DEFAULTS[k])
     if sensitivity:
         for k, v in SENSITIVITY_PRESETS.get(sensitivity, {}).items():
-            if k in valid:
-                setattr(cfg, k, v)
+            setattr(cfg, k, v)
     if exit_protocol:
         for k, v in EXIT_PRESETS.get(exit_protocol, {}).items():
-            if k in valid:
-                setattr(cfg, k, v)
+            setattr(cfg, k, v)
     return cfg
 
 

@@ -177,9 +177,50 @@ class AppState:
                 "suppressed": self.suppressed[:10],
                 "suppressed_count": len(self.suppressed),
             }
+            snap["mode"] = {"sensitivity": self.sensitivity,
+                            "exit_protocol": self.exit_protocol}
         return snap
 
-    def rebuild_and_broadcast(self):
+    def recompute_signal_history(self, bars=25_000):
+        """Hitung ulang sinyal historis dengan config mode yang baru — inilah
+        yang membuat perubahan sensitivity/exit protocol TERLIHAT di chart
+        (marker sinyal bertambah/berkurang) tanpa menunggu candle berikutnya."""
+        try:
+            import pandas as pd
+            hist = self.buffers.get(self.entry_tf)
+            deep = self.deep_history.get(self.entry_tf)
+            src = None
+            if deep is not None and len(deep):
+                extra = hist[~hist.index.isin(deep.index)] if hist is not None and len(hist) else None
+                src = pd.concat([deep, extra]) if extra is not None else deep
+            elif hist is not None:
+                src = hist
+            if src is None or len(src) < 300:
+                return
+            htf_buf = self.buffers.get(self.htf)
+            sig = generate_signals(src.tail(bars), self.cfg, htf_df=htf_buf)
+            entries = []
+            for t, row in sig.tail(10).iterrows():
+                entries.append({
+                    "time": t.isoformat(), "tf": self.entry_tf,
+                    "side": "LONG" if row["signal"] == 1 else "SHORT",
+                    "entry": round(float(row["entry"]), 2),
+                    "sl": round(float(row["sl"]), 2),
+                    "tp1": round(float(row["tp1"]), 2),
+                    "tp2": round(float(row["tp2"]), 2),
+                    "score": int(row["score"]),
+                    "kind": self._classify(int(row["score"])),
+                })
+            self.signals_log = list(reversed(entries))
+            if sig.index.size:
+                self._last_sig_time = sig.index[-1]
+            print(f"[mode] sinyal historis dihitung ulang: {len(sig)} sinyal "
+                  f"dengan mode {self.sensitivity}/{self.exit_protocol} "
+                  f"(10 terakhir di log)", flush=True)
+        except Exception as e:
+            print("[mode] recompute gagal:", e, flush=True)
+
+    def rebuild_and_broadcast(self, recompute_signals=False):
         """Bangun ulang snapshot dengan state terbaru (mis. setelah ubah filter)
         dan broadcast ke semua klien dashboard."""
         try:
@@ -193,6 +234,17 @@ class AppState:
                 self._decorate(snap)
             self.snapshot_data = snap
             self._view_cache.clear()
+            if recompute_signals:
+                self.recompute_signal_history()
+                snap = build_snapshot(dict(self.buffers), self.cfg, self.signals_log,
+                                      symbol=self.label, view_tf=self.entry_tf,
+                                      htf_tf=self.htf)
+                if snap:
+                    snap["demo"] = self.demo
+                    snap["exec_mode"] = self.executor.mode
+                    snap["engine_entry"] = self.entry_tf
+                    self._decorate(snap)
+                self.snapshot_data = snap
             if self.server:
                 self.server.broadcast_threadsafe({"type": "snapshot", "data": snap})
         except Exception as e:
