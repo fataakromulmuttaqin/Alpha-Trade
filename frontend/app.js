@@ -8,7 +8,7 @@
 const state = {
   chart: null, series: null, candles: [], activeTf: null, engineTf: null,
   snap: null, ws: null, wsBackoff: 1000,
-  lines: { OB: [], FVG: [], LIMIT: [], RR: [], FORECAST: [], BASE: [] },
+  lines: { OB: [], FVG: [], LIMIT: [], RR: [], FORECAST: [], BASE: [], PDHL: [] },
   cvdSeries: null, markersApi: null,
   toggles: {},
   audioCtx: null, lastSigKey: null, lastStage: -1,
@@ -158,6 +158,14 @@ function drawOverlays() {
     line("FORECAST", fc.tp1, { color: "#8b93a1", title: "FC TP1", style: DOT });
     line("FORECAST", fc.tp2, { color: "#8b93a1", title: "FC TP2", style: DOT });
     line("FORECAST", fc.tp3, { color: "#8b93a1", title: "FC TP3", style: DOT });
+  }
+  // Previous Day High / Low (toggle PDHL) — dari smc.previous_high_low
+  if (state.toggles.PDHL && snap.pdh_pdl) {
+    const pp = snap.pdh_pdl;
+    line("PDHL", pp.pdh, { color: pp.broken_high ? "rgba(22,199,132,.45)" : "#16c784",
+      title: pp.broken_high ? "PDH ✓" : "PDH", style: DASH, width: 1 });
+    line("PDHL", pp.pdl, { color: pp.broken_low ? "rgba(234,57,67,.45)" : "#ea3943",
+      title: pp.broken_low ? "PDL ✓" : "PDL", style: DASH, width: 1 });
   }
   /* garis CHoCH: Minor (lama) + Major (terbaru) */
   const chochEvents = (snap.events || []).filter(e => e.tag === "CHOCH");

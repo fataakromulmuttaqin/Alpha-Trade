@@ -27,6 +27,25 @@ import pandas as pd
 from .confluence_engine import atr as atr_fn, ema, rsi
 from .smc_structure import structure_events
 
+
+def pdh_pdl(df_1h):
+    """Previous Day High/Low dari buffer 1h (smc.previous_high_low).
+    Nilai = hari UTC sebelumnya; `broken` = harga sudah menembus level hari ini.
+    Tanpa lookahead: hanya baris terakhir yang dipakai."""
+    if df_1h is None or len(df_1h) < 48:
+        return None
+    try:
+        from smartmoneyconcepts import smc
+    except ImportError:
+        return None
+    ohlc = df_1h[["open", "high", "low", "close", "volume"]]
+    last = smc.previous_high_low(ohlc, time_frame="1D").iloc[-1]
+    ph, pl = float(last["PreviousHigh"]), float(last["PreviousLow"])
+    if np.isnan(ph) or np.isnan(pl):
+        return None
+    return {"pdh": round(ph, 2), "pdl": round(pl, 2),
+            "broken_high": bool(last["BrokenHigh"]), "broken_low": bool(last["BrokenLow"])}
+
 PIP = 10.0  # XAUUSD: 1 pip = 0.1 pt -> strength poin = pt; 25 pips = 2.5 pt
 
 

@@ -16,7 +16,7 @@ import pandas as pd
 from .confluence_engine import Config, atr as atr_fn, ema, generate_signals, rsi
 from .godmode_engine import (ai_reasoning, classify_setup, choch_recent,
                             confluence_godmode, events_full, forecast, fvg_zones,
-                            market_condition, multi_zones, order_blocks,
+                            market_condition, multi_zones, order_blocks, pdh_pdl,
                             rsi_divergence_recent, session_info, structure_label,
                             trend_lamps, two_stage)
 from .smc_structure import structure_events
@@ -340,6 +340,7 @@ def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD", vie
         "volume_flow": vf,
         "zones": z,
         "zones_multi": zm,
+        "pdh_pdl": pdh_pdl(buffers.get("1h")),
         "events": events_full(df, 5, cfg.sweep_lookback),
         "heatmap": {"tfs": [t.upper() for t in tfs],
                     "rows": {k: [heatmap_row(buffers[t])[k] for t in tfs]
