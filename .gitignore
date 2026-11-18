@@ -27,3 +27,7 @@ _*.py
 tradoor-data/
 sim_trades.json
 alpha-trade-backend.zip
+
+# kredensial deploy (jangan pernah di-commit)
+hf.token
+botkeep.key

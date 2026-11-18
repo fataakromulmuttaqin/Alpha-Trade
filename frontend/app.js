@@ -738,16 +738,38 @@ function renderJournal(j) {
    Bila frontend di-host terpisah (window.AT_API_BASE di-set, mis. Vercel),
    dashboard memakai polling /api/snapshot tiap 4 detik — cukup responsif
    karena data hanya berubah per candle close. */
+async function pollSnapshot() {
+  try {
+    const q = state.activeTf ? `?tf=${state.activeTf}` : "";
+    renderSnapshot(await (await fetch(api_("/api/snapshot" + q))).json());
+  } catch (e) { /* jaringan gotoh — coba lagi di tick berikutnya */ }
+}
+
+function startPolling(ms) {
+  if (state._pollTimer) return;
+  state._pollTimer = setInterval(pollSnapshot, ms || (state.pollOnly ? 4000 : 15000));
+}
+
+function fallBackToPolling(reason) {
+  if (state.pollOnly) return;
+  state.pollOnly = true;
+  $("conn-status").textContent = `mode polling (${reason})`;
+  pollSnapshot();
+  startPolling(4000);
+}
+
 async function connectWS() {
   if (window.AT_API_BASE) {
     state.pollOnly = true;
     $("conn-status").textContent = "mode polling (backend terpisah)";
     pollSnapshot();
+    startPolling(4000);
     return;
   }
   try {
     const cfg = await (await fetch(api_("/api/config"))).json();
-    const url = `ws://${location.hostname}:${cfg.ws_port}`;
+    const scheme = location.protocol === "https:" ? "wss" : "ws";
+    const url = `${scheme}://${location.hostname}:${cfg.ws_port}`;
     state.ws = new WebSocket(url);
     state.ws.onopen = () => {
       state.wsBackoff = 1000;
@@ -773,11 +795,17 @@ async function connectWS() {
       }
     };
     state.ws.onclose = () => {
+      state.wsFails = (state.wsFails || 0) + 1;
+      // host 1 port (mis. Hugging Face Spaces) tidak akan pernah buka WS —
+      // setelah 2 kegagalan, beralih permanen ke polling
+      if (state.wsFails >= 2) { fallBackToPolling("WS tidak tersedia"); return; }
       $("conn-status").textContent = "terputus, reconnect…";
       setTimeout(connectWS, state.wsBackoff);
       state.wsBackoff = Math.min(state.wsBackoff * 2, 30000);
     };
   } catch (e) {
+    state.wsFails = (state.wsFails || 0) + 1;
+    if (state.wsFails >= 2) { fallBackToPolling("WS gagal: " + e.message); return; }
     $("conn-status").textContent = "gagal konek WS: " + e.message;
     setTimeout(connectWS, 5000);
   }
@@ -1091,12 +1119,6 @@ async function boot() {
     }
   } catch (e) { console.warn("snapshot awal gagal:", e); }
   connectWS();
-  setInterval(async () => {
-    if (state.ws && state.ws.readyState === 1) return;
-    try {
-      const q = state.activeTf ? `?tf=${state.activeTf}` : "";
-      renderSnapshot(await (await fetch(api_("/api/snapshot" + q))).json());
-    } catch (e) {}
-  }, state.pollOnly ? 4000 : 15000);
+  startPolling(state.pollOnly ? 4000 : 15000);
 }
 boot();
