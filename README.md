@@ -157,6 +157,26 @@ yang sama (satu origin), biarkan `window.AT_API_BASE = ""`.
   gap/reconnect otomatis re-seed; sim equity di-reset benar saat replay.
 - Eksekusi hanya ke **testnet/paper** — tidak pernah menyentuh mainnet.
 
+## Validasi edge (jujur, data asli)
+
+`python -m backend.validate_edge` — 2 juta bar 1m PAXGUSDT (2023–2026), entry 5m:
+**semua konfigurasi default PF < 1** (kalah). Kesimpulan awal: konfigurasi lama
+tidak punya edge.
+
+Tuning optuna (train 2023–2025) + verifikasi **out-of-sample 2026** yang tidak
+pernah disentuh tuning (`python -m backend.tune_edge`):
+
+| TF | OOS 2026 | Catatan |
+|---|---|---|
+| **1h** | **n=67 · WR 38.8% · PF 1.63 · +28.4% · maxDD −10.6%** | robust: kenaikan biaya & tetangga parameter tetap profit |
+| 15m | n=15 · WR 53.3% · PF 2.27 · +9.1% | sampel kecil |
+| 5m | n=131 · PF 0.97 | breakeven — noise dominan |
+
+Preset **EDGE-1H** (dropdown SIGNAL MODE + exit `ENGINE`) memuat konfigurasi
+tersebut — jalankan backend dengan `--entry-tf 1h`. Bukti edge bukan jaminan
+masa depan: paruh kedua 2026 datar, satu aset, dan hasil live akan berbeda
+dari backtest. Pakai risiko kecil dan pantau PaperSim.
+
 ## Riset & dokumen
 
 - `docs/GODMODE-ALGORITHM.md` — reverse-engineering algoritma godmode.my.id

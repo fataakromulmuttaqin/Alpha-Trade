@@ -54,7 +54,13 @@ def _make_cfg(trial, base):
     return Config(**{**base.__dict__, **kw})
 
 
-def objective_factory(df, base_cfg, n_splits=4, cost=0.0, min_fold_trades=10):
+def objective_factory(df, base_cfg, n_splits=4, cost=0.0, min_fold_trades=10,
+                      mode="min", min_total=100):
+    """mode 'min'  : expectancy minimum antar fold (konsistensi ketat; untuk
+                     strategi yang sudah profit — bisa degenerasi jadi 'tidak
+                     trade' bila semua konfigurasi kalah).
+       mode 'mean' : expectancy rata-rata + bonus konsistensi, dengan floor
+                     jumlah trade total (menolak konfigurasi pelit trade)."""
     def objective(trial):
         cfg = _make_cfg(trial, base_cfg)
         wf = walk_forward(df, cfg, n_splits=n_splits, cost=cost)
@@ -64,16 +70,27 @@ def objective_factory(df, base_cfg, n_splits=4, cost=0.0, min_fold_trades=10):
             exp = np.where(ntr < min_fold_trades, 0.0, exp)
         else:
             exp = np.zeros(len(wf))
+        total = float(ntr.sum())
+        if total < min_total:
+            score = -1.0                     # tolak pelit trade
+        elif mode == "mean":
+            frac_pos = float((exp > 0).mean())
+            score = float(np.mean(exp)) + 0.1 * frac_pos
+        else:
+            score = float(np.min(exp))
         trial.set_user_attr("segments", wf.to_dict("records"))
-        return float(np.min(exp))
+        trial.set_user_attr("total_trades", total)
+        return score
     return objective
 
 
-def tune(df, base_cfg=Config(), n_trials=30, n_splits=4, cost=0.0, seed=7):
+def tune(df, base_cfg=Config(), n_trials=30, n_splits=4, cost=0.0, seed=7,
+         mode="min", min_total=100):
     study = optuna.create_study(direction="maximize",
                                 sampler=optuna.samplers.TPESampler(seed=seed))
-    study.optimize(objective_factory(df, base_cfg, n_splits, cost), n_trials=n_trials,
-                   show_progress_bar=False)
+    study.optimize(objective_factory(df, base_cfg, n_splits, cost,
+                                     mode=mode, min_total=min_total),
+                   n_trials=n_trials, show_progress_bar=False)
     return study
 
 

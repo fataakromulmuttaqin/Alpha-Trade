@@ -71,10 +71,21 @@ SENSITIVITY_PRESETS = {
     "pingpong":  {"min_confluence": 3, "confirm_window": 2, "cooldown": 6,
                   "gate_trend": False, "rsi_pull_long": 30, "rsi_pull_short": 70,
                   "vp_prox_atr": 1.0, "atr_pct_low": 0.05},
+    # hasil tuning optuna 2023-2025 + verifikasi out-of-sample 2026 (PF 1.63 OOS)
+    # dirancang untuk ENTRY 1h — jalankan backend dengan --entry-tf 1h
+    "edge1h":    {"min_confluence": 1, "confirm_window": 2, "cooldown": 8,
+                  "gate_trend": True, "session_utc": (7, 21), "adx_min": 20.0,
+                  "sl_atr_min": 1.96, "sl_atr_max": 3.10,
+                  "tp1_rr": 2.34, "tp2_rr": 3.68,
+                  "rsi_pull_long": 46.0, "rsi_pull_short": 69.8,
+                  "vp_prox_atr": 0.44},
 }
 
 # Exit protocol mengubah multipliier SL/TP ala GODMODE
 EXIT_PRESETS = {
+    # "engine" = jangan sentuh SL/TP — dipakai bersama preset hasil tuning
+    # (edge1h) agar multipliernya tetap seperti hasil validasi
+    "engine": {},
     "quick": {"tp1_rr": 1.5, "tp2_rr": 3.0, "sl_atr_max": 2.5, "sl_atr_min": 1.0},
     "nitro": {"tp1_rr": 1.0, "tp2_rr": 1.5, "sl_atr_max": 2.0, "sl_atr_min": 0.8},
     "hold":  {"tp1_rr": 2.0, "tp2_rr": 4.0, "sl_atr_max": 3.0, "sl_atr_min": 1.2,

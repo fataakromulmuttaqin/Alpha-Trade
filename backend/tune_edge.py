@@ -61,7 +61,7 @@ def _tf_minutes(df_tf):
     return int(delta.total_seconds() // 60)
 
 
-def run_tf(df1m, tf_rule, trials):
+def run_tf(df1m, tf_rule, trials, mode="min", min_total=100):
     df = to_tf(df1m, tf_rule)
     train = df[df.index < TRAIN_END]
     oos_start = pd.Timestamp(TRAIN_END, tz=df.index.tz)
@@ -69,7 +69,8 @@ def run_tf(df1m, tf_rule, trials):
           f" ({len(train):,} bar) | OOS dari {oos_start.date()} ===", flush=True)
 
     t0 = time.time()
-    study = tune(train, base_cfg=Config(htf="4h"), n_trials=trials, n_splits=4, cost=COST)
+    study = tune(train, base_cfg=Config(htf="4h"), n_trials=trials, n_splits=4,
+                 cost=COST, mode=mode, min_total=min_total)
     best = dict(study.best_params)
     direction, session = best.pop("direction"), best.pop("session")
     best["allow_long"] = direction in ("both", "long")
@@ -113,6 +114,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tf", default="all", help="5m | 15m | 1h | all")
     ap.add_argument("--trials", type=int, default=50)
+    ap.add_argument("--mode", default="mean", choices=["mean", "min"],
+                    help="mean = expectancy rata-rata + floor trade (ronde 2); "
+                         "min = expectancy minimum antar fold (ronde 1)")
+    ap.add_argument("--min-total", type=int, default=100)
     ap.add_argument("--report", action="store_true")
     args = ap.parse_args()
 
@@ -131,8 +136,9 @@ def main():
         plan = {args.tf: (rule, args.trials)}
 
     for tf_name, (rule, trials) in plan.items():
-        res = run_tf(df1m, rule, trials)
-        with open(os.path.join(CACHE, f"edge_tune_{tf_name}.json"), "w",
+        res = run_tf(df1m, rule, trials, mode=args.mode, min_total=args.min_total)
+        res["mode"] = args.mode
+        with open(os.path.join(CACHE, f"edge_tune_{tf_name}_{args.mode}.json"), "w",
                   encoding="utf-8") as f:
             json.dump(res, f, indent=1, default=str)
     report()
