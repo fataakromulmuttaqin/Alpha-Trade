@@ -98,6 +98,47 @@ Key testnet lewat `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`
 (lihat `.env.example`): spot <https://testnet.binance.vision> · futures
 <https://testnet.binancefuture.com>. Tidak ada jalur mainnet di repo ini.
 
+## Deployment cloud
+
+Arsitektur: **frontend statik di Vercel + backend Python di Botkeep** (bisa juga
+satu origin di mana pun backend hidup — dashboard memakai polling 4 detik).
+
+| Bagian | Layanan | Alamat |
+|---|---|---|
+| Frontend | Vercel (project `alpha-trade`) | `https://alpha-trade-fataakromulmuttaqins-projects.vercel.app` |
+| Backend | Botkeep (server `alpha-trade`) | domain dari panel/API — di-set ke `frontend/config.js` |
+
+### Backend di Botkeep (via Developer API)
+
+`botkeep_setup.py` membuat server langsung lewat Developer API
+(key: env `BOTKEEP_API_KEY` atau file `botkeep.key` — keduanya tidak di-commit):
+
+```bash
+python botkeep_setup.py             # create + env + domain alias + start
+python botkeep_setup.py --status    # cek status server
+```
+
+Konfigurasi server: Python 3.11 · start `python main.py` · repo `main` branch ·
+RAM 1 GB / CPU 50% / storage 1 GB. Env yang dipasang otomatis:
+`AT_SYMBOL=PAXGUSDT`, `AT_LABEL=XAUUSD`, `AT_ENTRY_TF=5m`, `AT_HTF=4h`,
+`EXECUTION_MODE=off` (paper simulation — tidak menyentuh mainnet).
+
+Catatan: kapasitas free pool Botkeep bersifat best-effort; saat penuh, API
+mengembalikan 503 dan script akan terus mencoba (tiap 90 detik).
+
+### Menghubungkan frontend
+
+Setelah backend hidup, isi `frontend/config.js` dengan URL backend (tanpa
+garis miring di akhir) lalu redeploy Vercel. Bila frontend dilayani backend
+yang sama (satu origin), biarkan `window.AT_API_BASE = ""`.
+
+### Alternatif yang sudah dievaluasi
+
+- **Hugging Face Spaces** — Docker/Gradio Spaces kini butuh PRO ($9/bln);
+  hanya Static Spaces yang gratis (tidak bisa menjalankan Python).
+- **Render free** — 750 jam/bln, tidur setelah 15 menit tanpa trafik;
+  24/7 hanya dengan keep-alive ping eksternal (habiskan kuota tepat).
+
 ## Berita (opsional, key di `.env`)
 
 - `NEWS_KEY_NEWSDATA` — newsdata.io (utama; free plan: size maks 10)
