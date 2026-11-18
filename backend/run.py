@@ -53,6 +53,8 @@ class AppState:
         self.signal_high_risk = False                # SIGNAL HIGH RISK: ON/OFF
         self.suppressed = []                         # sinyal yang disaring filter
         self.demo = False
+        self.entry_tf = "15m"                        # default; ditimpa main() setelah parse arg
+        self.htf = "4h"                              # — mencegah /api/snapshot error saat boot
         self.deep_history = {}                       # tf -> df history tradoor (chart ALL)
         self.sim = PaperSim()                        # simulasi eksekusi internal
         self.news_feed = NewsFeed()                  # berita 3 provider + fallback
@@ -453,6 +455,7 @@ def sim_replay(state, bars=25_000):
         sig_times = set(sig.index)
         state.sim.trades, state.sim.open, state.sim.pending = [], [], None
         state.sim.reset_stream()
+        state.sim.persist_enabled = False               # replay: jangan tulis file 25rbx
         state.sim.equity = START_EQUITY                 # reset BENERAN ke $10.000
         for t, row in src.iterrows():
             state.sim.on_candle(t, row["open"], row["high"], row["low"], row["close"])
@@ -461,6 +464,8 @@ def sim_replay(state, bars=25_000):
                 state.sim.queue_signal(t, int(r["signal"]), float(r["entry"]),
                                        float(r["sl"]), float(r["tp1"]), float(r["tp2"]),
                                        mode=mode_label, kind=state._classify(int(r["score"])))
+        state.sim.persist_enabled = True                # hasil replay disimpan sekali
+        state.sim.save()
         return len(state.sim.trades)
 
     try:

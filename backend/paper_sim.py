@@ -44,6 +44,7 @@ class PaperSim:
         self.pending = None       # sinyal menunggu fill di open berikutnya
         self.equity = START_EQUITY
         self._id = 0
+        self.persist_enabled = True   # False saat replay: jangan tulis file 25rbx
         self.reentry = None       # re-entry ter-arm setelah stop-out kena sweep
         self._atr = None          # ATR streaming (Wilder) untuk sizing re-entry
         self._prev_c = None
@@ -63,6 +64,8 @@ class PaperSim:
             print("[sim] load gagal:", e)
 
     def save(self):
+        if not self.persist_enabled:
+            return
         try:
             json.dump({"trades": self.trades[-300:], "open": self.open,
                        "equity": self.equity, "_id": self._id},
@@ -137,6 +140,7 @@ class PaperSim:
             "kind": "RE-ENTRY", "sig_time": r.get("sig_time"),
             "reentry_of": r.get("reentry_of"),
         })
+        self.save()
         print(f"[sim] re-entry {r['side']} fill @{round(o, 2)} sl={round(sl, 2)} "
               f"(stop di luar extreme sweep)", flush=True)
 
@@ -167,6 +171,7 @@ class PaperSim:
                     "mode": p.get("mode", ""), "kind": p.get("kind", ""),
                     "sig_time": p["sig_time"],
                 })
+                self.save()
         # 2) evaluasi posisi berjalan (SL didahulukan bila kena bersamaan)
         still = []
         for tr in self.open:
@@ -203,13 +208,13 @@ class PaperSim:
                 self.trades.append(tr)
                 if done == "LOSS":
                     self._try_arm_reentry(tr, t, h, l, c)
+                self.save()                                # simpan hanya saat trade selesai
             else:
                 tr["r"] = round(tr["r"], 3)
                 still.append(tr)
         self.open = still
         self._hist.append((h, l, c))
         self._hist = self._hist[-25:]
-        self.save()
 
     # ----------------------------- ringkasan -------------------------------
     def summary(self):

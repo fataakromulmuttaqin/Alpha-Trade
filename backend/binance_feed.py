@@ -24,15 +24,18 @@ from .confluence_engine import Config, generate_signals
 
 # Kandidat host: utama + fallback publik (data-api.binance.vision = endpoint
 # resmi khusus data pasar; berguna bila api.binance.com diblokir jaringan).
+# Urutan didahulukan host .vision: di sebagian besar jaringan yang memblokir
+# api.binance.com / stream.binance.com (SSL mismatch), host .vision tetap
+# jalan — mencoba host utama dulu hanya buang waktu + retry tiap reconnect.
 # Bisa dioverride env AT_REST_BASE / AT_WS_BASE (URL lengkap klines / base WS).
 REST_CANDIDATES = {
-    "spot": ["https://api.binance.com/api/v3/klines",
-             "https://data-api.binance.vision/api/v3/klines"],
+    "spot": ["https://data-api.binance.vision/api/v3/klines",
+             "https://api.binance.com/api/v3/klines"],
     "futures": ["https://fapi.binance.com/fapi/v1/klines"],
 }
 WS_CANDIDATES = {
-    "spot": ["wss://stream.binance.com:9443/ws",
-             "wss://data-stream.binance.vision:9443/ws"],
+    "spot": ["wss://data-stream.binance.vision:9443/ws",
+             "wss://stream.binance.com:9443/ws"],
     "futures": ["wss://fstream.binance.com/ws"],
 }
 for _env, _cands in ((os.getenv("AT_REST_BASE"), REST_CANDIDATES),
