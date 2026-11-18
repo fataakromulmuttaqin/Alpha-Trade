@@ -3,11 +3,13 @@ Tuning parameter Config dengan Optuna, objektif = walk-forward.
 
 Objektif: MIN expectancy_R di antara segmen walk-forward (bukan rata-rata),
 supaya parameter yang menang harus konsisten di semua segmen, bukan satu split beruntung.
-Segmen dengan 0 trade dihitung sebagai expectancy 0 (tidak dianggap bagus, tidak dihukum).
+Fold dengan trade < min_fold_trades dihitung expectancy 0 — mencegah "menang"
+lewat segmen dengan 3 trade keberuntungan.
 
 Catatan overfit: hasil tuning di data yang sama tidak membuktikan edge. Validasi pakai
-data di luar sampel tuning (mis. sisa data setelah n_splits) sebelum dipercaya.
+data di luar sampel tuning (mis. tahun berikutnya) sebelum dipercaya.
 """
+import numpy as np
 import optuna
 import pandas as pd
 
@@ -15,30 +17,55 @@ from .backtest import walk_forward
 from .confluence_engine import Config
 
 SPACE = {
+    "sl_atr_min": ("float", 1.0, 2.0),
     "sl_atr_max": ("float", 1.5, 3.5),
     "tp1_rr": ("float", 1.0, 2.5),
-    "tp2_rr": ("float", 2.0, 4.5),
-    "rsi_pull_long": ("float", 35, 50),
-    "rsi_pull_short": ("float", 50, 65),
-    "cooldown": ("int", 3, 20),
-    "min_confluence": ("int", 2, 4),
+    "tp2_rr": ("float", 2.0, 5.0),
+    "rsi_pull_long": ("float", 30, 50),
+    "rsi_pull_short": ("float", 50, 70),
+    "confirm_window": ("int", 2, 8),
+    "vp_prox_atr": ("float", 0.4, 1.2),
+    "cooldown": ("int", 3, 30),
+    "min_confluence": ("int", 1, 4),
+    # filter desain (kategorikal) — dipilih optuna, bukan diasumsikan
+    "direction": ("cat", ("both", "long", "short")),
+    "session": ("cat", ("all", "ldn_ny", "ny", "ldn")),
+    "adx_min": ("cat", (0, 15, 20, 25)),
 }
+
+SESSIONS = {"all": None, "ldn_ny": (7, 21), "ny": (12, 21), "ldn": (7, 12)}
 
 
 def _make_cfg(trial, base):
     kw = {}
-    for name, (kind, lo, hi) in SPACE.items():
-        kw[name] = trial.suggest_float(name, lo, hi) if kind == "float" else trial.suggest_int(name, lo, hi)
+    for name, spec in SPACE.items():
+        kind = spec[0]
+        if kind == "float":
+            kw[name] = trial.suggest_float(name, spec[1], spec[2])
+        elif kind == "int":
+            kw[name] = trial.suggest_int(name, spec[1], spec[2])
+        else:  # cat
+            kw[name] = trial.suggest_categorical(name, spec[1])
+    direction, session, adx = kw.pop("direction"), kw.pop("session"), kw.pop("adx_min")
+    kw["allow_long"] = direction in ("both", "long")
+    kw["allow_short"] = direction in ("both", "short")
+    kw["session_utc"] = SESSIONS[session]
+    kw["adx_min"] = float(adx)
     return Config(**{**base.__dict__, **kw})
 
 
-def objective_factory(df, base_cfg, n_splits=4, cost=0.0):
+def objective_factory(df, base_cfg, n_splits=4, cost=0.0, min_fold_trades=10):
     def objective(trial):
         cfg = _make_cfg(trial, base_cfg)
         wf = walk_forward(df, cfg, n_splits=n_splits, cost=cost)
-        exp = (wf["expectancy_R"] if "expectancy_R" in wf.columns else pd.Series(0.0, index=wf.index)).fillna(0.0).to_numpy()
+        if "expectancy_R" in wf.columns:
+            exp = wf["expectancy_R"].fillna(0.0).to_numpy()
+            ntr = wf["trades"].fillna(0).to_numpy()
+            exp = np.where(ntr < min_fold_trades, 0.0, exp)
+        else:
+            exp = np.zeros(len(wf))
         trial.set_user_attr("segments", wf.to_dict("records"))
-        return float(exp.min())
+        return float(np.min(exp))
     return objective
 
 

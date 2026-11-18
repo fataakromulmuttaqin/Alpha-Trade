@@ -42,6 +42,10 @@ class Config:
     atr_pct_high: float = 0.95      # skip jika terlalu ekstrem
     min_confluence: int = 4         # dari 4 gate (MOM/VP/PA/VOL) harus lolos; 4 = AND ketat lama
     gate_trend: bool = True         # False = PING PONG (tanpa syarat tren HTF)
+    allow_long: bool = True         # filter desain: izinkan sinyal long
+    allow_short: bool = True        # filter desain: izinkan sinyal short
+    session_utc: tuple = None       # mis. (7, 21) = hanya sinyal jam 07:00-20:59 UTC
+    adx_min: float = 0.0            # filter regime: ADX >= nilai (0 = mati)
     atr_rank_window: int = 500
     cooldown: int = 10              # jeda antar sinyal (bar)
     risk_pct: float = 1.0           # % ekuitas per trade
@@ -142,6 +146,22 @@ def price_action(df, cfg):
 
 
 # ----------------------------- Engine ---------------------------------------
+def adx_wilder(d, n=14):
+    """ADX (Wilder) tanpa dependency eksternal — untuk filter regime trending."""
+    up = d["high"].diff()
+    dn = -d["low"].diff()
+    plus_dm = pd.Series(np.where((up > dn) & (up > 0), up, 0.0), index=d.index)
+    minus_dm = pd.Series(np.where((dn > up) & (dn > 0), dn, 0.0), index=d.index)
+    tr = pd.concat([d["high"] - d["low"],
+                    (d["high"] - d["close"].shift()).abs(),
+                    (d["low"] - d["close"].shift()).abs()], axis=1).max(axis=1)
+    atr_w = tr.ewm(alpha=1 / n, min_periods=n).mean()
+    pdi = 100 * plus_dm.ewm(alpha=1 / n, min_periods=n).mean() / atr_w
+    mdi = 100 * minus_dm.ewm(alpha=1 / n, min_periods=n).mean() / atr_w
+    dx = 100 * (pdi - mdi).abs() / (pdi + mdi).replace(0, np.nan)
+    return dx.ewm(alpha=1 / n, min_periods=n).mean()
+
+
 def htf_trend(df, cfg, htf_df=None):
     """+1 bullish / -1 bearish / 0 netral, dari EMA50 vs EMA200 di HTF.
     Memakai bar HTF yang SUDAH close (shift 1) agar tidak lookahead.
@@ -215,6 +235,21 @@ def generate_signals(df, cfg=Config(), htf_df=None):
     else:
         long_ok = n_l >= cfg.min_confluence
         short_ok = n_s >= cfg.min_confluence
+
+    # filter desain (opsional): arah, jendela sesi UTC, regime ADX
+    if not cfg.allow_long:
+        long_ok &= False
+    if not cfg.allow_short:
+        short_ok &= False
+    if cfg.session_utc:
+        h0, h1 = cfg.session_utc
+        in_sess = (d.index.hour >= h0) & (d.index.hour < h1)
+        long_ok &= in_sess
+        short_ok &= in_sess
+    if cfg.adx_min > 0:
+        adx = adx_wilder(d, 14)
+        long_ok &= adx >= cfg.adx_min
+        short_ok &= adx >= cfg.adx_min
 
     # skor kualitas (bonus, bukan gate)
     score_l = (sw_bull.astype(int) + _recent(bull_div, w).astype(int)
