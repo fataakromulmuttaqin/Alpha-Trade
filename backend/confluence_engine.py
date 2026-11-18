@@ -28,7 +28,7 @@ class Config:
     atr_len: int = 14
     sl_atr_min: float = 1.0         # jarak SL minimum (x ATR)
     sl_atr_max: float = 2.5         # jarak SL maksimum (x ATR)
-    sl_buffer_atr: float = 0.25     # buffer di luar swing/wick
+    sl_buffer_atr: float = 0.5      # buffer di luar swing/wick (aman dari sweep tipis)
     tp1_rr: float = 1.5
     tp2_rr: float = 3.0
     confirm_window: int = 3         # event (cross/divergence) berlaku N bar
@@ -222,12 +222,19 @@ def generate_signals(df, cfg=Config(), htf_df=None):
     score_s = (sw_bear.astype(int) + _recent(bear_div, w).astype(int)
                + (c < d["poc"]).astype(int) + (d["rsi"] < 50).astype(int))
 
-    # SL/TP dinamis ATR
+    # SL/TP dinamis ATR: stop di luar swing + buffer. Entry yang jarak stop
+    # naturalnya < sl_atr_min x ATR DITOLAK (stop di dalam noise = mudah
+    # disapu sweep), bukan dilebarkan paksa sampai keluar dari struktur.
     sw_low = d["low"].rolling(5).min()
     sw_high = d["high"].rolling(5).max()
     buf = cfg.sl_buffer_atr * d["atr"]
-    dist_l = (c - (sw_low - buf)).clip(cfg.sl_atr_min * d["atr"], cfg.sl_atr_max * d["atr"])
-    dist_s = ((sw_high + buf) - c).clip(cfg.sl_atr_min * d["atr"], cfg.sl_atr_max * d["atr"])
+    min_dist = cfg.sl_atr_min * d["atr"]
+    raw_l = c - (sw_low - buf)
+    raw_s = (sw_high + buf) - c
+    long_ok &= raw_l >= min_dist
+    short_ok &= raw_s >= min_dist
+    dist_l = raw_l.clip(min_dist, cfg.sl_atr_max * d["atr"])
+    dist_s = raw_s.clip(min_dist, cfg.sl_atr_max * d["atr"])
 
     sig = pd.Series(0, d.index)
     sig[long_ok] = 1

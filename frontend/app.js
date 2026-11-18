@@ -298,9 +298,10 @@ function drawCanvas() {
       // garis batas entry & tp2
       ctx.fillStyle = `rgba(${colTP},0.5)`;
       ctx.fillRect(x0, yT2 - 0.5, x1 - x0, 1);
-      // label TP 2 di tepi kanan zona
-      const rr = Math.abs(tr.tp2 - tr.entry) / (Math.abs(tr.entry - tr.sl) || 1e-9);
-      const lbl = `${tr.status === "OPEN" ? "▶ " : ""}TP 2 ($${fmt(tr.tp2)})  |  RR 1:${rr.toFixed(1)}`;
+      // label TP 2 di tepi kanan zona (SL breakeven -> pakai risk awal trade)
+      const riskPts = Math.abs(tr.entry - tr.sl) || tr.risk || 0;
+      const rr = riskPts ? Math.abs(tr.tp2 - tr.entry) / riskPts : 0;
+      const lbl = `${tr.status === "OPEN" ? "▶ " : ""}TP 2 ($${fmt(tr.tp2)})  |  RR 1:${rr ? rr.toFixed(1) : "BE"}`;
       ctx.font = "10px 'Segoe UI', sans-serif";
       const ly = Math.min(bandTP[0], bandTP[1]) + 12;
       if (ly > 0 && ly < H) {

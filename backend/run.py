@@ -26,6 +26,13 @@ from .testnet_executor import TestnetExecutor
 from .tradoor_feed import TradoorFeed
 
 
+def _rr_text(tp2, entry, sl, orig_risk=None):
+    """Teks RR untuk kartu setup. Saat SL sudah digeser breakeven (sl == entry)
+    pakai risk awal trade, bukan pembagian nol."""
+    base = abs(entry - sl) or (orig_risk or 0)
+    return f"1:{abs(tp2 - entry) / base:.0f}" if base else "BE"
+
+
 class AppState:
     """Buffer per TF + snapshot terakhir + log sinyal + executor."""
 
@@ -233,7 +240,7 @@ class AppState:
             snap["setup"] = {
                 "side": t["side"], "time": t.get("sig_time", t["time"]),
                 "entry": t["entry"], "sl": t["sl"], "tp1": t["tp1"], "tp2": t["tp2"],
-                "rr": f"1:{abs(t['tp2'] - t['entry']) / (abs(t['entry'] - t['sl']) or 1e-9):.0f}",
+                "rr": _rr_text(t["tp2"], t["entry"], t["sl"], t.get("risk")),
                 "score": 0, "reason": "posisi simulasi berjalan", "fresh": False,
                 "kind": t.get("kind", ""), "executable": True,
                 "sim_status": "OPEN", "sim_r": t.get("r", 0.0), "running": True,
@@ -250,7 +257,7 @@ class AppState:
             snap["setup"] = {
                 "side": e["side"], "time": e["time"],
                 "entry": e["entry"], "sl": e["sl"], "tp1": e["tp1"], "tp2": e["tp2"],
-                "rr": f"1:{abs(e['tp2'] - e['entry']) / (abs(e['entry'] - e['sl']) or 1e-9):.0f}",
+                "rr": _rr_text(e["tp2"], e["entry"], e["sl"]),
                 "score": e.get("score", 0),
                 "reason": "sinyal terakhir (deep history)", "fresh": False,
                 "kind": e.get("kind", ""), "executable": allowed,
@@ -445,6 +452,7 @@ def sim_replay(state, bars=25_000):
         sig = generate_signals(src, cfg, htf_df=htf_buf)
         sig_times = set(sig.index)
         state.sim.trades, state.sim.open, state.sim.pending = [], [], None
+        state.sim.reset_stream()
         state.sim.equity = START_EQUITY                 # reset BENERAN ke $10.000
         for t, row in src.iterrows():
             state.sim.on_candle(t, row["open"], row["high"], row["low"], row["close"])

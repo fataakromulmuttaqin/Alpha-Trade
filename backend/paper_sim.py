@@ -21,6 +21,19 @@ RISK_PCT = 1.0
 START_EQUITY = 10_000.0
 MAX_HOLD = 200
 
+# Re-entry setelah stop-out kena sweep (opsi 3): bila SL kena di bar yang
+# JUGA menyapu likuiditas (high > high 20 bar sebelumnya untuk SHORT, atau
+# low < low 20 bar sebelumnya untuk LONG) tapi gagal ditahan (close kembali
+# di dalam range) -> arahkan re-entry arah sama di open bar berikutnya dengan
+# SL di luar extreme sweep ± buffer ATR. Satu generasi saja (re-entry tidak
+# memancing re-entry lagi) dan tetap lolos gate risiko 1-2.5 x ATR.
+REENTRY_LOOKBACK = 20
+REENTRY_BUF_ATR = 0.5
+REENTRY_MIN_RISK_ATR = 1.0
+REENTRY_MAX_RISK_ATR = 2.5
+REENTRY_TP1_RR = 1.5
+REENTRY_TP2_RR = 3.0
+
 
 class PaperSim:
     def __init__(self, path="sim_trades.json", risk_pct=RISK_PCT):
@@ -31,6 +44,10 @@ class PaperSim:
         self.pending = None       # sinyal menunggu fill di open berikutnya
         self.equity = START_EQUITY
         self._id = 0
+        self.reentry = None       # re-entry ter-arm setelah stop-out kena sweep
+        self._atr = None          # ATR streaming (Wilder) untuk sizing re-entry
+        self._prev_c = None
+        self._hist = []           # (h, l, c) N bar terakhir untuk deteksi sweep
         self.load()
 
     # ----------------------------- persistence -----------------------------
@@ -60,9 +77,75 @@ class PaperSim:
                         "sig_entry": float(entry), "sl": float(sl), "tp1": float(tp1),
                         "tp2": float(tp2), "mode": mode, "kind": kind}
 
+    def reset_stream(self):
+        """Reset state streaming (ATR/history/re-entry) — dipakai sim_replay."""
+        self.reentry, self._atr, self._prev_c, self._hist = None, None, None, []
+
+    # ----------------------------- re-entry sweep --------------------------
+    def _update_stream(self, h, l, c):
+        tr = h - l if self._prev_c is None else max(
+            h - l, abs(h - self._prev_c), abs(l - self._prev_c))
+        self._atr = tr if self._atr is None else self._atr + (tr - self._atr) / 14
+        self._prev_c = c
+
+    def _try_arm_reentry(self, tr, t, h, l, c):
+        """Stop-out di bar yang menyapu likuiditas tapi gagal ditahan -> arm
+        re-entry arah sama, SL di luar extreme sweep. Hanya untuk LOSS asli
+        (bukan BE+) dan bukan trade re-entry sendiri (satu generasi)."""
+        if tr.get("kind") == "RE-ENTRY" or tr.get("status") != "LOSS":
+            return
+        if self._atr is None or len(self._hist) < REENTRY_LOOKBACK:
+            return
+        prior = self._hist[-REENTRY_LOOKBACK:]
+        if tr["side"] == "SHORT":
+            hi = max(b[0] for b in prior)
+            if not (h > hi and c < hi):          # sweep buy-side yang gagal
+                return
+            extreme = h
+        else:
+            lo = min(b[1] for b in prior)
+            if not (l < lo and c > lo):          # sweep sell-side yang gagal
+                return
+            extreme = l
+        self.reentry = {"side": tr["side"], "extreme": extreme, "atr": self._atr,
+                        "sig_time": str(t), "mode": tr.get("mode", ""),
+                        "reentry_of": tr.get("id")}
+        print(f"[sim] re-entry ter-arm: {tr['side']} setelah sweep {round(extreme, 2)} "
+              f"(SL di luar extreme +/- {REENTRY_BUF_ATR}xATR)", flush=True)
+
+    def _fill_reentry(self, t, o):
+        """Eksekusi re-entry ter-arm di OPEN candle berikutnya."""
+        r, self.reentry = self.reentry, None
+        if r is None:
+            return
+        atr = r["atr"]
+        d = 1 if r["side"] == "LONG" else -1
+        sl = r["extreme"] - d * REENTRY_BUF_ATR * atr   # SHORT: atas sweep-high, LONG: bawah sweep-low
+        dist = d * (o - sl)
+        if not (REENTRY_MIN_RISK_ATR * atr <= dist <= REENTRY_MAX_RISK_ATR * atr):
+            print(f"[sim] re-entry {r['side']} dilewati: jarak SL {round(dist, 2)} "
+                  f"di luar {REENTRY_MIN_RISK_ATR}-{REENTRY_MAX_RISK_ATR}xATR", flush=True)
+            return
+        self._id += 1
+        self.open.append({
+            "id": self._id, "time": str(t), "side": r["side"],
+            "entry": round(o, 2), "sl": round(sl, 2),
+            "tp1": round(o + d * REENTRY_TP1_RR * dist, 2),
+            "tp2": round(o + d * REENTRY_TP2_RR * dist, 2),
+            "risk": round(dist, 2), "r": 0.0, "bars": 0,
+            "hit1": False, "status": "OPEN", "mode": r.get("mode", ""),
+            "kind": "RE-ENTRY", "sig_time": r.get("sig_time"),
+            "reentry_of": r.get("reentry_of"),
+        })
+        print(f"[sim] re-entry {r['side']} fill @{round(o, 2)} sl={round(sl, 2)} "
+              f"(stop di luar extreme sweep)", flush=True)
+
     # ----------------------------- per candle ------------------------------
     def on_candle(self, t, o, h, l, c):
         """Proses satu candle yang sudah close (t, o, h, l, c)."""
+        self._update_stream(h, l, c)
+        # 0) re-entry hasil sweep stop-out: fill di open candle ini
+        self._fill_reentry(t, o)
         # 1) isi pending di open candle ini
         if self.pending is not None:
             p = self.pending
@@ -118,10 +201,14 @@ class PaperSim:
                 tr["equity_after"] = round(self.equity * (1 + self.risk_pct / 100 * tr["r"]), 2)
                 self.equity = tr["equity_after"]
                 self.trades.append(tr)
+                if done == "LOSS":
+                    self._try_arm_reentry(tr, t, h, l, c)
             else:
                 tr["r"] = round(tr["r"], 3)
                 still.append(tr)
         self.open = still
+        self._hist.append((h, l, c))
+        self._hist = self._hist[-25:]
         self.save()
 
     # ----------------------------- ringkasan -------------------------------
