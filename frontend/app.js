@@ -1138,6 +1138,22 @@ function initSplitters() {
     });
     location.reload();
   });
+
+  // tema: glassmorphism / default (tersimpan di localStorage, default GLASS)
+  const applyTheme = (t) => {
+    document.documentElement.dataset.theme = t;
+    const tb = $("btn-theme");
+    if (!tb) return;
+    tb.textContent = t === "glass" ? "THEME: GLASS" : "THEME: DEFAULT";
+    tb.classList.toggle("chip-on", t === "glass");
+  };
+  applyTheme(localStorage.getItem("at-theme") || "glass");
+  const tbBtn = $("btn-theme");
+  if (tbBtn) tbBtn.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "glass" ? "default" : "glass";
+    localStorage.setItem("at-theme", next);
+    applyTheme(next);
+  });
 }
 
 /* chip SIGNAL GOLDEN / SIGNAL HIGH RISK: toggle + kirim ke backend */

@@ -1,0 +1,95 @@
+/* ALPHA-TRADE — GLASSMORPHISM theme (opsional, reversible)
+   Aktif bila <html data-theme="glass"> — di-toggle tombol "THEME" di footer.
+   File ini HANYA menimpa warna/blur/border; ukuran layout tidak diubah.
+   Cara menghapus total: buang <link href="theme-glass.css"> dari index.html.
+   Kaca hanya di permukaan BESAR (card/topbar/tf-row) — kontrol kecil
+   translucent tanpa backdrop-filter supaya chart tetap 60fps. */
+
+/* ---------- latar: gelap bergradasi + blob cahaya pemantul kaca ----------
+   Blob digambar sebagai layer background <html> (bukan pseudo-element) —
+   background html terpropagasi ke canvas sehingga SELALU di belakang semua
+   konten dan jadi backdrop blur untuk kaca. */
+html[data-theme="glass"] {
+  background-color: #070a0f;
+  background-image:
+    radial-gradient(42% 34% at 16% 8%, rgba(229,196,86,.38), transparent 60%),
+    radial-gradient(46% 36% at 90% 16%, rgba(45,212,191,.30), transparent 60%),
+    radial-gradient(40% 32% at 60% 96%, rgba(22,199,132,.26), transparent 58%),
+    radial-gradient(32% 28% at 4% 82%, rgba(124,148,255,.24), transparent 60%),
+    radial-gradient(50% 30% at 50% 45%, rgba(217,120,74,.10), transparent 65%),
+    linear-gradient(180deg, #0c1017 0%, #05070b 100%);
+  background-attachment: fixed;
+}
+html[data-theme="glass"] body {
+  background: transparent;
+}
+
+/* ---------- permukaan kaca besar ---------- */
+html[data-theme="glass"] .card,
+html[data-theme="glass"] .stat-card,
+html[data-theme="glass"] .tf-row,
+html[data-theme="glass"] .zone-box,
+html[data-theme="glass"] .topbar {
+  background: rgba(16, 20, 27, .52);
+  -webkit-backdrop-filter: blur(12px) saturate(145%);
+  backdrop-filter: blur(12px) saturate(145%);
+  border: 1px solid rgba(255, 255, 255, .09);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .35),
+              inset 0 1px 0 rgba(255, 255, 255, .07);
+}
+html[data-theme="glass"] .topbar {
+  border-radius: 14px;
+  padding: 8px 14px 12px;
+}
+html[data-theme="glass"] .stat-card,
+html[data-theme="glass"] .card { border-radius: 14px; }
+
+/* ---------- kontrol kecil: translucent tanpa blur (performa) ---------- */
+html[data-theme="glass"] .chip,
+html[data-theme="glass"] .tf-btn,
+html[data-theme="glass"] .sel-mode,
+html[data-theme="glass"] .icon-btn,
+html[data-theme="glass"] .btn-ghost,
+html[data-theme="glass"] .badge,
+html[data-theme="glass"] .conf-row .pts,
+html[data-theme="glass"] .zone-controls input {
+  background: rgba(255, 255, 255, .045);
+  border-color: rgba(255, 255, 255, .12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+html[data-theme="glass"] .chip.on,
+html[data-theme="glass"] .tf-btn.on,
+html[data-theme="glass"] .mode-gold {
+  background: rgba(217, 182, 74, .14);
+  border-color: rgba(217, 182, 74, .45);
+}
+html[data-theme="glass"] .chip-green { background: rgba(22, 199, 132, .13); border-color: rgba(22,199,132,.42); }
+html[data-theme="glass"] .chip-red,
+html[data-theme="glass"] .mode-red { background: rgba(234, 57, 67, .12); border-color: rgba(234,57,67,.42); }
+
+html[data-theme="glass"] .btn-gold {
+  background: linear-gradient(180deg, #e6c766, #c79b2e);
+  box-shadow: 0 4px 18px rgba(217, 182, 74, .28);
+}
+
+/* ---------- garis pemisah & elemen sekunder ---------- */
+html[data-theme="glass"] .setup-note {
+  background: rgba(217, 182, 74, .10);
+  border-color: rgba(217, 182, 74, .35);
+}
+html[data-theme="glass"] .vf-bar { background: rgba(234, 57, 67, .14); }
+html[data-theme="glass"] .vsplit:hover, html[data-theme="glass"] .vsplit.drag,
+html[data-theme="glass"] .hsplit:hover, html[data-theme="glass"] .hsplit.drag {
+  background: rgba(255, 255, 255, .18);
+}
+
+/* ---------- fallback tanpa backdrop-filter (browser lama) ---------- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-theme="glass"] .card,
+  html[data-theme="glass"] .stat-card,
+  html[data-theme="glass"] .tf-row { background: rgba(16, 20, 27, .84); }
+}
+
+/* ---------- scrollbar menyatu dengan kaca ---------- */
+html[data-theme="glass"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .14); }
+html[data-theme="glass"] ::-webkit-scrollbar-track { background: transparent; }
