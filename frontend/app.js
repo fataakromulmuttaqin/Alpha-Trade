@@ -21,9 +21,22 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
-/* base API: default same-origin; untuk frontend terpisah (Vercel) set
-   window.AT_API_BASE di config.js, mis. "https://backend.host" */
-const API = () => (window.AT_API_BASE || "").replace(/\/$/, "");
+/* base API: prioritas ?api= di URL > localStorage(at_api_base) >
+   window.AT_API_BASE (config.js) > same-origin. Dipakai untuk bridge
+   frontend Vercel -> backend lokal via tunnel (lihat docs/BRIDGE-VERCEL.md). */
+const API = () => {
+  if (window._apiCache === undefined) {
+    window._apiCache = (new URLSearchParams(location.search).get("api")
+      || localStorage.getItem("at_api_base") || window.AT_API_BASE || "")
+      .replace(/\/$/, "");
+  }
+  return window._apiCache;
+};
+const setApiBase = (v) => {            // dipanggil dari klik status koneksi
+  if (v) localStorage.setItem("at_api_base", v.replace(/\/$/, ""));
+  else localStorage.removeItem("at_api_base");
+  location.reload();
+};
 const api_ = (p) => API() + p;
 const fmt = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? "--" : Number(v).toFixed(d);
 
@@ -739,14 +752,45 @@ function renderJournal(j) {
 
 /* ============================== WS / POLLING ============================== */
 /* WS dipakai hanya bila frontend dan backend satu origin (localhost).
-   Bila frontend di-host terpisah (window.AT_API_BASE di-set, mis. Vercel),
-   dashboard memakai polling /api/snapshot tiap 4 detik — cukup responsif
-   karena data hanya berubah per candle close. */
+   Bila frontend di-host terpisah (base API via ?api= / localStorage /
+   window.AT_API_BASE, mis. bridge Vercel -> backend lokal via tunnel),
+   dashboard memakai polling /api/snapshot tiap 4 detik + refresh candle
+   incremental — cukup responsif karena data hanya berubah per candle close. */
 async function pollSnapshot() {
   try {
     const q = state.activeTf ? `?tf=${state.activeTf}` : "";
     renderSnapshot(await (await fetch(api_("/api/snapshot" + q))).json());
+    if (state.activeTf) await refreshLatestCandles();
   } catch (e) { /* jaringan gotoh — coba lagi di tick berikutnya */ }
+}
+
+/* ambil beberapa candle terakhir dan update series secara inkremental
+   (pengganti pesan WS "candle" saat mode polling) */
+async function refreshLatestCandles() {
+  let j;
+  try {
+    const r = await fetch(api_(`/api/candles?tf=${state.activeTf}&limit=5`));
+    if (!r.ok) return;
+    j = await r.json();
+  } catch (e) { return; }
+  const rows = j.candles || [];
+  let changed = false;
+  for (const c of rows) {
+    const last = state.candles[state.candles.length - 1];
+    if (last && c[0] < last[0]) continue;              // candle lampau, abaikan
+    if (last && c[0] === last[0]) state.candles[state.candles.length - 1] = c;
+    else { state.candles.push(c); changed = true; }
+    state.series.update({ time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4] });
+    if (state.volSeries) state.volSeries.update({
+      time: c[0] / 1000, value: c[5],
+      color: c[4] >= c[1] ? "rgba(34,197,94,0.38)" : "rgba(239,68,68,0.38)",
+    });
+  }
+  if (rows.length) {
+    updateCvdSeries();
+    drawCanvas();
+  }
+  if (changed) fitBars();
 }
 
 function startPolling(ms) {
@@ -763,9 +807,11 @@ function fallBackToPolling(reason) {
 }
 
 async function connectWS() {
-  if (window.AT_API_BASE) {
+  if (API()) {
+    const host = API().replace(/^https?:\/\//, "");
     state.pollOnly = true;
-    $("conn-status").textContent = "mode polling (backend terpisah)";
+    $("conn-status").textContent = `mode polling • ${host}`;
+    $("conn-status").title = "klik untuk mengganti URL backend";
     pollSnapshot();
     startPolling(4000);
     return;
@@ -898,6 +944,16 @@ function bindUI() {
   /* selector mode -> backend */
   $("sel-sensitivity").addEventListener("change", () => postSettingsBody());
   $("sel-exit").addEventListener("change", () => postSettingsBody());
+
+  /* status koneksi: klik untuk set/clear URL backend bridge (tunnel) */
+  $("conn-status").addEventListener("click", () => {
+    const v = prompt(
+      "URL backend (mis. https://xxxx.trycloudflare.com)\n"
+      + "kosongkan untuk same-origin / default config.js:",
+      API());
+    if (v === null) return;
+    setApiBase(v.trim());
+  });
 
   /* chip filter sinyal — fungsional: mengubah analisis di backend */
   $("chip-golden").addEventListener("click", () => {
