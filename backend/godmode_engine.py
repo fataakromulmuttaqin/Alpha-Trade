@@ -135,6 +135,99 @@ def market_condition(df, lookback=60):
     return ("SIDEWAYS" if sideways else "TRENDING"), hi, lo
 
 
+# ----------------------------- Mode AUTO adaptif -----------------------------
+# Sensitivity dipilih otomatis mengikuti kondisi market per bar:
+#   TRENDING -> standard (trend-following seimbang)
+#   SIDEWAYS -> pingpong (tanpa gate tren HTF, main di zona RSI 30/70)
+AUTO_REGIME_MODE = {"TRENDING": "standard", "SIDEWAYS": "pingpong"}
+
+
+def _regime_series(df, lookback=60):
+    """Label rezim per bar (TRENDING/SIDEWAYS) TANPA lookahead — semantik sama
+    persis dengan market_condition() tapi dihitung pada jendela rolling."""
+    h, l, c = df["high"], df["low"], df["close"]
+    hi = h.rolling(lookback).max()
+    lo = l.rolling(lookback).min()
+    rng = (hi - lo)
+    a = atr_fn(df)
+    pos = (c - lo) / rng.replace(0, np.nan)
+    heur_side = ((rng < 6 * a) & (pos >= 0.35) & (pos <= 0.65)).fillna(False)
+    try:
+        import pandas_ta_classic as ta
+        adx = ta.adx(h, l, c, length=14)["ADX_14"].reindex(df.index)
+    except Exception:
+        adx = None
+    if adx is None:
+        return heur_side.astype(bool)
+    # sama dgn market_condition: ADX >=25 trending, <=18 sideways, di antaranya trending
+    side = (adx <= 18).fillna(False)
+    return side.astype(bool)
+
+
+def _hysteresis(side, stable_bars):
+    """Label baru harus bertahan `stable_bars` bar berturut-turut sebelum rezim
+    berpindah — mencegah mode bolak-balik pada transisi pendek."""
+    arr = side.to_numpy(dtype=bool)
+    res = np.empty(len(arr), dtype=bool)
+    cur = bool(arr[0])
+    cand, n = None, 0
+    for i, v in enumerate(arr):
+        if v == cur:
+            cand, n = None, 0
+        elif cand == v:
+            n += 1
+        else:
+            cand, n = v, 1
+        if n >= stable_bars:
+            cur = v
+            cand, n = None, 0
+        res[i] = cur
+    return pd.Series(res, side.index)
+
+
+def generate_signals_auto(df, htf_df=None, exit_protocol=None, stable_bars=8,
+                          lookback=60, warmup=260):
+    """generate_signals versi ADAPTIF: tiap segmen rezim dihitung dengan preset
+    sensitivity-nya masing-masing (standard utk TRENDING, pingpong utk SIDEWAYS).
+    Rezim per-bar memakai hanya data masa lalu; segmen diproses dengan blok
+    warmup `warmup` bar agar indikator panjang (EMA200/volume profile) matang.
+    Format keluaran sama dengan generate_signals."""
+    from .confluence_engine import Config, generate_signals
+
+    if len(df) < 300:
+        return generate_signals(df, Config(), htf_df=htf_df)
+
+    lab = _hysteresis(_regime_series(df, lookback), stable_bars).to_numpy()
+    change = np.flatnonzero(np.diff(lab)) + 1
+    starts = np.concatenate([[0], change])
+    ends = np.concatenate([change, [len(lab)]])
+
+    parts = []
+    for s, e in zip(starts, ends):
+        kondisi = "SIDEWAYS" if lab[s] else "TRENDING"
+        seg_cfg = apply_mode(Config(), sensitivity=AUTO_REGIME_MODE[kondisi],
+                             exit_protocol=exit_protocol)
+        i0 = max(0, s - warmup)
+        sig = generate_signals(df.iloc[i0:e], seg_cfg, htf_df=htf_df)
+        if len(sig):
+            parts.append(sig.loc[df.index[s]:df.index[e - 1]])
+
+    if not parts:
+        return generate_signals(df, Config(), htf_df=htf_df).iloc[0:0]
+    out = pd.concat(parts).sort_index()
+    out = out[~out.index.duplicated(keep="last")]
+
+    # cooldown global pada jarak BAR asli (bukan posisi antar sinyal)
+    positions = df.index.get_indexer(out.index)
+    cd, keep, last = 10, [], -10**9
+    for t, p in zip(out.index, positions):
+        if p - last < cd:
+            continue
+        last = p
+        keep.append(t)
+    return out.loc[keep]
+
+
 # ----------------------------- Lampu tren -----------------------------------
 def trend_lamps(df, df_daily=None):
     """Micro(EMA9) / Mini(EMA20) / Macro(EMA50) / Daily — UP/DOWN/FLAT."""

@@ -19,11 +19,14 @@ import pandas as pd
 from .analytics import build_snapshot
 from .binance_feed import MultiFeed, INTERVAL_MS
 from .confluence_engine import Config, generate_signals
+from .godmode_engine import apply_mode, generate_signals_auto, market_condition
 from .news_feed import NewsFeed
 from .paper_sim import PaperSim, START_EQUITY
 from .server import DashboardServer
 from .testnet_executor import TestnetExecutor
 from .tradoor_feed import TradoorFeed
+
+AUTO_STABLE_BARS = 8   # bar berturut-turut sebelum rezim dianggap ganti (15m ~ 2 jam)
 
 
 def _rr_text(tp2, entry, sl, orig_risk=None):
@@ -47,8 +50,12 @@ class AppState:
         self._last_sig_time = None
         self.server = None
         self.lock = asyncio.Lock()
-        self.sensitivity = "golden"                  # preset mode aktif
+        self.sensitivity = "auto"                    # preset mode aktif ("auto" = adaptif rezim)
         self.exit_protocol = "quick"
+        self._auto_cond = None                       # rezim yang sedang dipakai (live)
+        self._auto_cand = None                       # rezim kandidat (hysteresis)
+        self._auto_cand_n = 0
+        self._auto_resolved = None                   # preset terpilih utk ditampilkan
         self.signal_golden = True                    # SIGNAL GOLDEN: ON/OFF
         self.signal_high_risk = False                # SIGNAL HIGH RISK: ON/OFF
         self.suppressed = []                         # sinyal yang disaring filter
@@ -80,14 +87,45 @@ class AppState:
             self._view_cache[view_tf] = (time.time(), snap)
         return snap
 
+    def _resolve_auto_mode(self, buf):
+        """AUTO: pasang preset sensitivity sesuai kondisi market, dengan
+        hysteresis AUTO_STABLE_BARS bar agar tidak bolak-balik tiap candle."""
+        cond = market_condition(buf)[0]
+        target = {"TRENDING": "standard", "SIDEWAYS": "pingpong"}[cond]
+        if self._auto_cond is None:                        # resolusi pertama
+            self._auto_cond = cond
+            self._auto_resolved = target
+            apply_mode(self.cfg, sensitivity=target, exit_protocol=self.exit_protocol)
+            print(f"[auto] mode -> {target} ({cond})", flush=True)
+            return
+        if cond == self._auto_cond:
+            self._auto_cand, self._auto_cand_n = None, 0
+            return
+        if self._auto_cand == cond:
+            self._auto_cand_n += 1
+        else:
+            self._auto_cand, self._auto_cand_n = cond, 1
+        if self._auto_cand_n >= AUTO_STABLE_BARS:
+            self._auto_cond = cond
+            self._auto_cand, self._auto_cand_n = None, 0
+            self._auto_resolved = target
+            apply_mode(self.cfg, sensitivity=target, exit_protocol=self.exit_protocol)
+            print(f"[auto] mode -> {target} ({cond})", flush=True)
+
     def apply_settings(self, body):
         """POST /api/settings: sensitivity, exit_protocol, filter sinyal."""
         from .godmode_engine import apply_mode
         out = {"applied": []}
         sens = body.get("sensitivity")
-        if sens in ("golden", "aggressive", "standard", "precision", "pingpong"):
+        if sens in ("auto", "golden", "aggressive", "standard", "precision", "pingpong"):
             self.sensitivity = sens
-            apply_mode(self.cfg, sensitivity=sens)
+            if sens == "auto":
+                self._auto_cond = None                 # paksa resolusi ulang
+                buf = self.buffers.get(self.entry_tf)
+                if buf is not None and len(buf) > 300:
+                    self._resolve_auto_mode(buf)
+            else:
+                apply_mode(self.cfg, sensitivity=sens)
             out["applied"].append("sensitivity:" + sens)
         ex = body.get("exit_protocol")
         if ex in ("quick", "nitro", "hold"):
@@ -159,6 +197,8 @@ class AppState:
             self.sim.on_candle(buf.index[-1], float(last_row["open"]),
                                float(last_row["high"]), float(last_row["low"]),
                                float(last_row["close"]))
+            if self.sensitivity == "auto":            # pilih preset sesuai rezim
+                self._resolve_auto_mode(buf)
             sig = generate_signals(buf, self.cfg, htf_df=htf_buf)
             self._handle_new_signals(sig)
             snap = build_snapshot(dict(self.buffers), self.cfg, self.signals_log,
@@ -196,7 +236,8 @@ class AppState:
                 "suppressed_count": len(self.suppressed),
             }
             snap["mode"] = {"sensitivity": self.sensitivity,
-                            "exit_protocol": self.exit_protocol}
+                            "exit_protocol": self.exit_protocol,
+                            "auto_resolved": self._auto_resolved}
             snap["sim"] = {"stats": self.sim.summary(),
                            "trades": self.sim.snapshot_list(20)}
             snap["news"] = {"items": self.news_feed.top_for_chart(3),
@@ -284,7 +325,13 @@ class AppState:
             if src is None or len(src) < 300:
                 return
             htf_buf = self.buffers.get(self.htf)
-            sig = generate_signals(src.tail(bars), self.cfg, htf_df=htf_buf)
+            if self.sensitivity == "auto":
+                sig = generate_signals_auto(src.tail(bars), htf_df=htf_buf,
+                                            exit_protocol=self.exit_protocol)
+                mode_txt = f"auto/{self.exit_protocol}"
+            else:
+                sig = generate_signals(src.tail(bars), self.cfg, htf_df=htf_buf)
+                mode_txt = f"{self.sensitivity}/{self.exit_protocol}"
             entries = []
             for t, row in sig.tail(10).iterrows():
                 entries.append({
@@ -301,7 +348,7 @@ class AppState:
             if sig.index.size:
                 self._last_sig_time = sig.index[-1]
             print(f"[mode] sinyal historis dihitung ulang: {len(sig)} sinyal "
-                  f"dengan mode {self.sensitivity}/{self.exit_protocol} "
+                  f"dengan mode {mode_txt} "
                   f"(10 terakhir di log)", flush=True)
         except Exception as e:
             print("[mode] recompute gagal:", e, flush=True)
@@ -411,7 +458,11 @@ def seed_last_signal(state, deep_bars=50_000):
         if src is None or len(src) < 300:
             return
         htf_buf = state.buffers.get(state.htf)
-        sig = generate_signals(src.tail(deep_bars), state.cfg, htf_df=htf_buf)
+        if state.sensitivity == "auto":
+            sig = generate_signals_auto(src.tail(deep_bars), htf_df=htf_buf,
+                                        exit_protocol=state.exit_protocol)
+        else:
+            sig = generate_signals(src.tail(deep_bars), state.cfg, htf_df=htf_buf)
         if sig.empty:
             return
         t, row = sig.index[-1], sig.iloc[-1]
@@ -445,13 +496,18 @@ def sim_replay(state, bars=25_000):
             return pd.concat([deep, extra]) if extra is not None else deep
         return hist
 
-    def _replay(cfg, mode_label):
+    def _replay(cfg, mode_label, sens=None):
+        sens = sens or state.sensitivity
         src = _src()
         if src is None or len(src) < 300:
             return 0
         src = src.tail(bars)
         htf_buf = state.buffers.get(state.htf)
-        sig = generate_signals(src, cfg, htf_df=htf_buf)
+        if sens == "auto":
+            sig = generate_signals_auto(src, htf_df=htf_buf,
+                                        exit_protocol=state.exit_protocol)
+        else:
+            sig = generate_signals(src, cfg, htf_df=htf_buf)
         sig_times = set(sig.index)
         state.sim.trades, state.sim.open, state.sim.pending = [], [], None
         state.sim.reset_stream()
@@ -471,12 +527,12 @@ def sim_replay(state, bars=25_000):
     try:
         n = _replay(state.cfg, state.sensitivity)
         replay_mode = state.sensitivity
-        if n == 0:
+        if n == 0 and state.sensitivity != "auto":
             from .confluence_engine import Config as _C
             from .godmode_engine import apply_mode as _am
             cfg_std = _am(_C(), sensitivity="standard",
                           exit_protocol=state.exit_protocol)
-            n = _replay(cfg_std, "standard (replay)")
+            n = _replay(cfg_std, "standard (replay)", sens="standard")
             replay_mode = "standard (replay)"
         print(f"[sim] replay {bars} bar selesai: {n} trade "
               f"(mode replay: {replay_mode})", flush=True)
@@ -655,6 +711,9 @@ async def main():
             except Exception as e:
                 print(f"[seed] {tf} gagal: {e}", flush=True)
         seed_last_signal(state)                          # isi log dulu (fallback RR)
+        buf0 = state.buffers.get(state.entry_tf)
+        if state.sensitivity == "auto" and buf0 is not None and len(buf0) > 300:
+            state._resolve_auto_mode(buf0)               # badge MODE langsung terisi
         sim_replay(state)                                # isi kartu SIMULASI dengan hasil replay
         snap = build_snapshot(state.buffers, cfg, state.signals_log, state.label,
                               view_tf=args.entry_tf, htf_tf=args.htf)

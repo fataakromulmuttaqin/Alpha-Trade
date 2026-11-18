@@ -385,7 +385,10 @@ function drawCanvas() {
   /* badge MODE analisis (sensitivity + exit protocol) di kanan atas */
   const mode = snap.mode;
   if (mode && mode.sensitivity) {
-    const txt = `MODE: ${mode.sensitivity.toUpperCase()} · ${(mode.exit_protocol || "").toUpperCase()}`;
+    const sensTxt = mode.sensitivity === "auto"
+      ? `AUTO→${(mode.auto_resolved || "…").toUpperCase()}`
+      : mode.sensitivity.toUpperCase();
+    const txt = `MODE: ${sensTxt} · ${(mode.exit_protocol || "").toUpperCase()}`;
     ctx.font = "bold 10px 'Segoe UI', sans-serif";
     const w = ctx.measureText(txt).width + 14;
     ctx.fillStyle = "rgba(10,12,16,0.78)";
