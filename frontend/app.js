@@ -21,6 +21,10 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+/* base API: default same-origin; untuk frontend terpisah (Vercel) set
+   window.AT_API_BASE di config.js, mis. "https://backend.host" */
+const API = () => (window.AT_API_BASE || "").replace(/\/$/, "");
+const api_ = (p) => API() + p;
 const fmt = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? "--" : Number(v).toFixed(d);
 
 /* ============================== CHART ============================== */
@@ -54,7 +58,7 @@ function initChart() {
 
 async function loadCandles(tf, limitOverride) {
   const limit = limitOverride || state.chartLimit || 1500;
-  const r = await fetch(`/api/candles?tf=${tf}&limit=${limit}`);
+  const r = await fetch(api_(`/api/candles?tf=${tf}&limit=${limit}`));
   if (!r.ok) { console.warn("candles", tf, "tidak tersedia"); return false; }
   const j = await r.json();
   state.candles = j.candles;
@@ -729,10 +733,20 @@ function renderJournal(j) {
   $("jr-winrate").textContent = tot ? Math.round(j.wins / tot * 100) + "%" : "0%";
 }
 
-/* ============================== WS ============================== */
+/* ============================== WS / POLLING ============================== */
+/* WS dipakai hanya bila frontend dan backend satu origin (localhost).
+   Bila frontend di-host terpisah (window.AT_API_BASE di-set, mis. Vercel),
+   dashboard memakai polling /api/snapshot tiap 4 detik — cukup responsif
+   karena data hanya berubah per candle close. */
 async function connectWS() {
+  if (window.AT_API_BASE) {
+    state.pollOnly = true;
+    $("conn-status").textContent = "mode polling (backend terpisah)";
+    pollSnapshot();
+    return;
+  }
   try {
-    const cfg = await (await fetch("/api/config")).json();
+    const cfg = await (await fetch(api_("/api/config"))).json();
     const url = `ws://${location.hostname}:${cfg.ws_port}`;
     state.ws = new WebSocket(url);
     state.ws.onopen = () => {
@@ -774,7 +788,7 @@ async function switchTf(tf) {
   const ok = await loadCandles(tf);
   if (!ok) return;
   try {
-    const snap = await (await fetch(`/api/snapshot?tf=${tf}`)).json();
+    const snap = await (await fetch(api_(`/api/snapshot?tf=${tf}`))).json();
     if (!snap.error) {
       renderSnapshot(snap);          // panel + overlay khusus TF ini
       return;
@@ -907,7 +921,7 @@ function renderResearch(rep) {
 
 async function loadResearch() {
   try {
-    const r = await fetch("/api/research");
+    const r = await fetch(api_("/api/research"));
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     renderResearch(await r.json());
   } catch (e) {
@@ -917,7 +931,7 @@ async function loadResearch() {
 
 async function restoreMode() {
   try {
-    const h = await (await fetch("/api/health")).json();
+    const h = await (await fetch(api_("/api/health"))).json();
     if (h.sensitivity) $("sel-sensitivity").value = h.sensitivity;
     if (h.exit_protocol) $("sel-exit").value = h.exit_protocol;
     setSignalChip("chip-golden", "SIGNAL GOLDEN", !!h.signal_golden);
@@ -1047,7 +1061,7 @@ function setSignalChip(id, label, on) {
   b.classList.toggle("mode-dim", !on);
 }
 function postSettingsBody(extra = {}) {
-  return fetch("/api/settings", {
+  return fetch(api_("/api/settings"), {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       sensitivity: $("sel-sensitivity").value,
@@ -1058,7 +1072,7 @@ function postSettingsBody(extra = {}) {
     if (j.signal_golden !== undefined) setSignalChip("chip-golden", "SIGNAL GOLDEN", j.signal_golden);
     if (j.signal_high_risk !== undefined) setSignalChip("chip-highrisk", "SIGNAL HIGH RISK", j.signal_high_risk);
     // snapshot diperbarui server (rebuild+broadcast); segarkan panel lokal
-    return fetch("/api/snapshot").then(r => r.json()).then(s => { renderSnapshot(s); return j; });
+    return fetch(api_("/api/snapshot")).then(r => r.json()).then(s => { renderSnapshot(s); return j; });
   }).catch(() => {});
 }
 
@@ -1069,7 +1083,7 @@ async function boot() {
   bindUI();
   restoreMode();
   try {
-    const snap = await (await fetch("/api/snapshot")).json();
+    const snap = await (await fetch(api_("/api/snapshot"))).json();
     if (!snap.error) {
       renderSnapshot(snap);
       const tf = snap.tf_entry || "15m";
@@ -1081,8 +1095,8 @@ async function boot() {
     if (state.ws && state.ws.readyState === 1) return;
     try {
       const q = state.activeTf ? `?tf=${state.activeTf}` : "";
-      renderSnapshot(await (await fetch("/api/snapshot" + q)).json());
+      renderSnapshot(await (await fetch(api_("/api/snapshot" + q))).json());
     } catch (e) {}
-  }, 15000);
+  }, state.pollOnly ? 4000 : 15000);
 }
 boot();

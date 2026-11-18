@@ -552,7 +552,8 @@ async def main():
     ap.add_argument("--tradoor-market", default=os.getenv("AT_TRADOOR_MARKET", ""),
                     help="market tradoor, mis. binance-perp:BTCUSDT (default dari --symbol)")
     ap.add_argument("--bars", type=int, default=int(os.getenv("AT_BARS", "1500")))
-    ap.add_argument("--port", type=int, default=int(os.getenv("AT_PORT", "8788")))
+    ap.add_argument("--port", type=int,
+                    default=int(os.getenv("AT_PORT") or os.getenv("PORT") or "8788"))
     ap.add_argument("--ws-port", type=int, default=int(os.getenv("AT_WS_PORT", "8789")))
     args = ap.parse_args()
 

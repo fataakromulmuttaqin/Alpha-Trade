@@ -180,9 +180,15 @@ class DashboardServer:
 
     async def start_ws(self):
         self._loop = asyncio.get_running_loop()
-        self._ws_server = await websockets.serve(
-            self._ws_handler, "0.0.0.0", self.ws_port)
-        print(f"[ws] broadcast: ws://localhost:{self.ws_port}", flush=True)
+        try:
+            self._ws_server = await websockets.serve(
+                self._ws_handler, "0.0.0.0", self.ws_port)
+            print(f"[ws] broadcast: ws://localhost:{self.ws_port}", flush=True)
+        except OSError as e:
+            # PaaS kadang hanya membuka satu port — dashboard tetap jalan
+            # lewat polling /api/snapshot.
+            print(f"[ws] port {self.ws_port} tidak tersedia ({e}); "
+                  f"klien akan memakai polling", flush=True)
 
     async def start(self):
         self.start_http()
