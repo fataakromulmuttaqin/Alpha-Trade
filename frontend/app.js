@@ -405,11 +405,20 @@ function drawCanvas() {
     ctx.font = "bold 10px 'Segoe UI', sans-serif";
     const w = ctx.measureText(txt).width + 14;
     ctx.fillStyle = "rgba(10,12,16,0.78)";
-    ctx.fillRect(W - w - 74, 8, w, 18);
-    ctx.strokeStyle = "#d9b64a";
-    ctx.strokeRect(W - w - 73.5, 8.5, w - 1, 17);
-    ctx.fillStyle = "#d9b64a";
-    ctx.fillText(txt, W - w - 66, 21);
+    if (W < 560) {
+      // chart sempit: taruh di kiri bawah badge SND, jauh dari sumbu harga
+      ctx.fillRect(8, 30, w, 18);
+      ctx.strokeStyle = "#d9b64a";
+      ctx.strokeRect(8.5, 30.5, w - 1, 17);
+      ctx.fillStyle = "#d9b64a";
+      ctx.fillText(txt, 15, 43);
+    } else {
+      ctx.fillRect(W - w - 74, 8, w, 18);
+      ctx.strokeStyle = "#d9b64a";
+      ctx.strokeRect(W - w - 73.5, 8.5, w - 1, 17);
+      ctx.fillStyle = "#d9b64a";
+      ctx.fillText(txt, W - w - 66, 21);
+    }
   }
 }
 

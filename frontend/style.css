@@ -21,9 +21,10 @@ body {
   background: var(--bg); color: var(--text);
   font-family: "Segoe UI", Inter, Arial, sans-serif;
   font-size: 13px; padding: 10px 14px 24px;
-  min-width: 1024px;         /* zoom tinggi: scroll horizontal, bukan overlap */
+  min-width: 360px;          /* responsif: layout menumpuk di lebar kecil,
+                                tanpa scroll horizontal paksa */
 }
-html { overflow-x: auto; }
+html { overflow-x: auto; }   /* jaring pengaman bila ada konten membandel */
 button { cursor: pointer; font-family: inherit; }
 .info { color: var(--dim); font-size: 11px; }
 
@@ -245,9 +246,29 @@ button { cursor: pointer; font-family: inherit; }
 #forecast-chip.bear { color: var(--red); border-color: rgba(234,57,67,.45); }
 #forecast-chip.on { background: var(--gold-soft); border-color: var(--gold); color: var(--gold); }
 
+/* ---------- responsif: di lebar sempit layout menumpuk 1 kolom ---------- */
 @media (max-width: 1200px) {
   .stat-row { grid-template-columns: repeat(3, 1fr); }
   .main-grid, .bottom-grid { grid-template-columns: 1fr; }
+  .main-grid > .vsplit, .bottom-grid > .vsplit, .hsplit { display: none; }
+  .bottom-grid { height: auto; }
+  .bottom-grid > * { max-height: 480px; }
+  .rail { overflow-y: visible; }
+  .tf-row { flex-wrap: wrap; gap: 8px; justify-content: flex-start; }
+  .tf-left, .tf-right { flex-wrap: wrap; }
+  .active-row { flex-wrap: wrap; }
+}
+@media (max-width: 700px) {
+  body { padding: 8px 8px 20px; }
+  .stat-row { grid-template-columns: repeat(2, 1fr); }
+  #chart-wrap { min-height: 380px; }
+  .chart-card { min-height: 430px; }
+  .brand-name { font-size: 16px; }
+  .stat-value { font-size: 17px; }
+  .big-price { font-size: 21px; }
+  .zone-price { font-size: 17px; }
+  .setup-grid, .risk-grid, .risk-out { grid-template-columns: 1fr; }
+  .bottom-grid > * { max-height: 380px; }
 }
 
 .mode-red { color: var(--red); border-color: var(--red); background: var(--red-soft); font-weight: 800; }
