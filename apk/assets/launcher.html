@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Alpha-Trade — Setup</title>
+<style>
+  body { background:#0a0c10; color:#d7dde6; font-family:"Segoe UI",Roboto,Arial,sans-serif;
+         display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }
+  .box { max-width:340px; width:92%; text-align:center; }
+  .logo { font-size:26px; font-weight:900; color:#d9b64a; letter-spacing:.06em; }
+  .sub { color:#7c8694; font-size:12px; letter-spacing:.1em; margin:4px 0 22px; }
+  input { width:100%; box-sizing:border-box; background:#141922; color:#d9b64a;
+          border:1px solid #1f2630; border-radius:10px; padding:12px 14px; font-size:14px; }
+  .hint { color:#7c8694; font-size:11px; line-height:1.6; margin:14px 0; text-align:left; }
+  button { width:100%; background:linear-gradient(180deg,#e6c766,#c79b2e); color:#1a1405;
+           border:none; border-radius:10px; padding:13px; font-weight:900; letter-spacing:.06em;
+           margin-top:10px; font-size:14px; }
+  .err { color:#ea3943; font-size:12px; min-height:16px; margin-top:8px; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="logo">ALPHA-TRADE</div>
+    <div class="sub">SMC ENGINE — ANDROID</div>
+    <input id="url" placeholder="URL server, mis. http://192.168.1.10:8794">
+    <div class="hint">
+      Isi alamat dashboard Alpha-Trade di PC/VPN/tunnel, contoh:<br>
+      • LAN: http://192.168.1.10:8794 (exe native di PC)<br>
+      • Tunnel: https://xxxx.trycloudflare.com<br>
+      • Vercel+bridge: https://alpha-trade-seven.vercel.app (isi API di footer)
+    </div>
+    <button onclick="go()">MULAI TRADING</button>
+    <div class="err" id="err"></div>
+  </div>
+  <script>
+    const SAVED = localStorage.getItem("at-apk-url");
+    if (SAVED) document.getElementById("url").value = SAVED;
+    function go() {
+      let u = document.getElementById("url").value.trim().replace(/\/+$/, "");
+      if (!/^https?:\/\//.test(u)) u = "http://" + u;
+      const err = document.getElementById("err");
+      err.textContent = "Menghubungkan…";
+      fetch(u + "/api/health", { cache: "no-store" })
+        .then(r => r.json())
+        .then(j => {
+          if (!j.ok) throw new Error("server balas tapi bukan Alpha-Trade");
+          localStorage.setItem("at-apk-url", u);
+          localStorage.setItem("at_api_base", u);   // dashboard pakai ini
+          location.replace(u);
+        })
+        .catch(() => {
+          err.textContent = "Tidak terhubung. Pastikan server jalan & satu jaringan. Cek juga: mode http/https.";
+        });
+    }
+  </script>
+</body>
+</html>
