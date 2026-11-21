@@ -31,3 +31,6 @@ alpha-trade-backend.zip
 # kredensial deploy (jangan pernah di-commit)
 hf.token
 botkeep.key
+
+# native rust build
+native/target/

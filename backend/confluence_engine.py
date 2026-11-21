@@ -188,9 +188,10 @@ def _recent(s, n):
     return s.rolling(n, min_periods=1).max().astype(bool)
 
 
-def generate_signals(df, cfg=Config(), htf_df=None):
+def generate_signals(df, cfg=Config(), htf_df=None, debug_out=None):
     d = df.copy()
     c = d["close"]
+    _dbg = debug_out if isinstance(debug_out, dict) else None
 
     # indikator
     d["ema9"], d["ema20"], d["ema50"], d["ema200"] = (ema(c, n) for n in (9, 20, 50, 200))
@@ -303,6 +304,19 @@ def generate_signals(df, cfg=Config(), htf_df=None):
     sig[short_ok & ~long_ok] = -1
 
     # cooldown
+    if _dbg is not None:
+        _dbg["long_ok"] = [bool(x) for x in long_ok]
+        _dbg["short_ok"] = [bool(x) for x in short_ok]
+        _dbg["n_l"] = [int(x) for x in n_l]
+        _dbg["n_s"] = [int(x) for x in n_s]
+        _dbg["g_mom_s"] = [bool(x) for x in g_mom_s]
+        _dbg["g_mom_l"] = [bool(x) for x in g_mom_l]
+        _dbg["g_vp_s"] = [bool(x) for x in g_vp_s]
+        _dbg["g_vp_l"] = [bool(x) for x in g_vp_l]
+        _dbg["g_pa_s"] = [bool(x) for x in g_pa_s]
+        _dbg["g_pa_l"] = [bool(x) for x in g_pa_l]
+        _dbg["g_vol"] = [bool(x) for x in g_vol]
+        _dbg["trend"] = [int(x) for x in trend]
     last, arr = -10**9, sig.to_numpy().copy()
     for i in range(len(arr)):
         if arr[i] != 0:

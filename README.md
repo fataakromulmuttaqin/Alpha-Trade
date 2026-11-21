@@ -98,6 +98,24 @@ Key testnet lewat `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`
 (lihat `.env.example`): spot <https://testnet.binance.vision> · futures
 <https://testnet.binancefuture.com>. Tidak ada jalur mainnet di repo ini.
 
+## Aplikasi Windows native (.exe, Rust)
+
+`native/` = port Rust dari backend: server HTTP tunggal (frontend embedded,
+tanpa install Python), feed polling Binance, engine 5-gate yang **tervalidasi
+identik N/N** dengan Python (608+69 sinyal pada 2 juta bar data asli — waktu,
+arah, entry/sl/tp persis), PaperSim + daily stop, news.
+
+```bash
+cd native && cargo build --release
+# hasil: native/target/release/alpha-trade-native.exe (~2.6 MB, RAM ~13 MB)
+AT_PORT=8794 ./target/release/alpha-trade-native.exe   # buka browser otomatis
+```
+
+Env: `AT_SYMBOL` `AT_ENTRY_TF` (default 1h) `AT_SENSITIVITY` (edge1h)
+`AT_EXIT` (engine) `AT_SIM_DAILY_STOP` `NEWS_KEY_NEWSDATA`. Uji validasi:
+`cargo test --test validate`. Catatan v1: polling 4 detik (tanpa WS server),
+panel riset/bridge menyusul iterasi berikutnya.
+
 ## Deployment cloud
 
 Arsitektur: **frontend statik di Vercel + backend Python di Botkeep** (bisa juga
