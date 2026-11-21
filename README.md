@@ -116,6 +116,15 @@ Env: `AT_SYMBOL` `AT_ENTRY_TF` (default 1h) `AT_SENSITIVITY` (edge1h)
 `cargo test --test validate`. Catatan v1: polling 4 detik (tanpa WS server),
 panel riset/bridge menyusul iterasi berikutnya.
 
+### Android
+
+`AlphaTrade-v1.0.apk` (root repo & `apk/`) — shell WebView native
+(minSdk 24, signed): install di HP → isi URL server (LAN `http://192.168.x.x:8794`,
+tunnel cloudflared, atau Vercel) → cek `/api/health` otomatis → dashboard penuh
+dengan bottom-nav + layout ponsel (PWA manifest + ikon + service worker network-first
+juga tersedia bila dilayani via https). Engine tetap hidup di PC — HP sebagai
+layar cepat; update UI tinggal refresh (service worker network-first).
+
 ## Deployment cloud
 
 Arsitektur: **frontend statik di Vercel + backend Python di Botkeep** (bisa juga
