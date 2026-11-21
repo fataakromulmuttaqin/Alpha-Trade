@@ -173,9 +173,23 @@ pernah disentuh tuning (`python -m backend.tune_edge`):
 | 5m | n=131 · PF 0.97 | breakeven — noise dominan |
 
 Preset **EDGE-1H** (dropdown SIGNAL MODE + exit `ENGINE`) memuat konfigurasi
-tersebut — jalankan backend dengan `--entry-tf 1h`. Bukti edge bukan jaminan
-masa depan: paruh kedua 2026 datar, satu aset, dan hasil live akan berbeda
-dari backtest. Pakai risiko kecil dan pantau PaperSim.
+tersebut — jalankan backend dengan `--entry-tf 1h --sensitivity edge1h
+--exit engine` (atau env `AT_SENSITIVITY`/`AT_EXIT`).
+
+**Generalisasi lintas aset** — profil yang di-tune di emas diuji di BTC
+(2 juta bar, tidak pernah disentuh tuning): TRAIN PF 1.38, OOS 2026 PF 1.41
+(+16.7%). Deep tuning 250 trial independen mendarat di region performa yang
+sama — edge bukan jarum. Profil 15m TIDAK generalisasi ke BTC → tetap
+eksperimental.
+
+**Manajemen risiko bawaan** (`backend/backtest.py` + PaperSim):
+`daily_stop_r` (stop entry sisa hari setelah -X R; rekomendasi 1R,
+`AT_SIM_DAILY_STOP=1`), `daily_max_trades`, trailing stop (untuk EDGE-1H
+ditolak oleh data: memangkas winner TP2 — biarkan off), dan gate news live
+(entry ditahan +-30 mnt di sekitar berita berdampak tinggi).
+
+Bukti edge bukan jaminan masa depan: paruh kedua 2026 datar, dan hasil live
+akan berbeda dari backtest. Pakai risiko kecil dan pantau PaperSim.
 
 ## Riset & dokumen
 
