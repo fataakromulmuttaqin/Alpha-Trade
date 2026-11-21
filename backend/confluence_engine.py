@@ -46,6 +46,11 @@ class Config:
     allow_short: bool = True        # filter desain: izinkan sinyal short
     session_utc: tuple = None       # mis. (7, 21) = hanya sinyal jam 07:00-20:59 UTC
     adx_min: float = 0.0            # filter regime: ADX >= nilai (0 = mati)
+    fib_gate: bool = False          # premium/discount: LONG hanya di bawah EQ 0.5, SHORT di atas
+    fib_lookback: int = 120         # rentang dealing-range utk level fib
+    round_gate: bool = False        # kesadaran harga psikologis (angka bulat)
+    round_prox_atr: float = 0.25    # "dekat level bulat" = dalam 0.25 ATR
+    round_entry_gate: bool = True   # False = hanya sesuaikan SL/TP, entry bebas
     atr_rank_window: int = 500
     cooldown: int = 10              # jeda antar sinyal (bar)
     risk_pct: float = 1.0           # % ekuitas per trade
@@ -250,6 +255,28 @@ def generate_signals(df, cfg=Config(), htf_df=None):
         adx = adx_wilder(d, 14)
         long_ok &= adx >= cfg.adx_min
         short_ok &= adx >= cfg.adx_min
+    if cfg.fib_gate:
+        # premium/discount terhadap dealing range: LONG hanya di discount
+        # (<= EQ 0.5), SHORT hanya di premium (>= EQ) — ICT/GODMODE style
+        rng_hi = d["high"].rolling(cfg.fib_lookback).max()
+        rng_lo = d["low"].rolling(cfg.fib_lookback).min()
+        rng = (rng_hi - rng_lo).replace(0, np.nan)
+        eq = rng_lo + 0.5 * rng
+        long_ok &= c <= eq
+        short_ok &= c >= eq
+    if cfg.round_gate:
+        # harga psikologis: level bulat besar = kolam likuiditas / magnet.
+        # Step otomatis dari skala harga (emas ~3500 -> major tiap 100).
+        ref = float(np.nanmedian(c))
+        major = 100.0 if ref >= 500 else (10.0 if ref >= 50 else 1.0)
+        rprox = cfg.round_prox_atr * d["atr"]
+        if cfg.round_entry_gate:
+            lvl_above = np.ceil(c / major) * major
+            lvl_below = np.floor(c / major) * major
+            # jangan entry LONG tepat di bawah resisten bulat / SHORT tepat
+            # di atas support bulat (harga sering mantul di situ)
+            long_ok &= ~((lvl_above > c) & (lvl_above - c <= rprox))
+            short_ok &= ~((c > lvl_below) & (c - lvl_below <= rprox))
 
     # skor kualitas (bonus, bukan gate)
     score_l = (sw_bull.astype(int) + _recent(bull_div, w).astype(int)
@@ -290,6 +317,53 @@ def generate_signals(df, cfg=Config(), htf_df=None):
     d["sl"] = np.where(s == 1, c - dist, np.where(s == -1, c + dist, np.nan))
     d["tp1"] = np.where(s == 1, c + cfg.tp1_rr * dist, np.where(s == -1, c - cfg.tp1_rr * dist, np.nan))
     d["tp2"] = np.where(s == 1, c + cfg.tp2_rr * dist, np.where(s == -1, c - cfg.tp2_rr * dist, np.nan))
+
+    if cfg.round_gate:
+        # sesuaikan SL/TP terhadap level bulat besar:
+        #  - SL jangan duduk sedikit DI ATAS/DI BAWAH level bulat (sweep magnet)
+        #  - TP jangan diletakkan sedikit DI BALIK level bulat (harga sering
+        #    mentok lalu mantul) — geser sedikit ke sisi aman.
+        ref = float(np.nanmedian(c))
+        major = 100.0 if ref >= 500 else (10.0 if ref >= 50 else 1.0)
+        rprox = cfg.round_prox_atr * d["atr"].to_numpy()
+        rbuf = cfg.sl_buffer_atr * d["atr"].to_numpy()
+        sl_a, tp2_a = d["sl"].to_numpy(copy=True), d["tp2"].to_numpy(copy=True)
+        is_l, is_s = (s == 1), (s == -1)
+
+        # LONG: level bulat dalam +-rprox dari SL (di ATAU di bawahnya) ->
+        # SL dipindah ke sisi aman level: L - buffer (min: tak pernah mengetatkan)
+        m = is_l & ~np.isnan(sl_a)
+        lvl_lo = np.floor(sl_a / major) * major
+        lvl_hi = lvl_lo + major
+        near_lo = (sl_a - lvl_lo) <= rprox
+        near_hi = (lvl_hi - sl_a) <= rprox
+        L = np.where(near_lo, lvl_lo, lvl_hi)
+        unsafe = m & (near_lo | near_hi) & (L < d["entry"].to_numpy())
+        sl_a[unsafe] = np.minimum(sl_a[unsafe], L[unsafe] - rbuf[unsafe])
+        # TP2 long: level bulat di antara entry dan tp2, tp2 sedikit di baliknya
+        m = is_l & ~np.isnan(tp2_a)
+        rl = np.floor(tp2_a / major) * major
+        snap = m & (rl > d["entry"].to_numpy()) & (tp2_a - rl <= rprox) & (rl - rbuf > d["entry"].to_numpy())
+        tp2_a[snap] = rl[snap] - rbuf[snap]
+
+        # SHORT: level bulat dalam +-rprox dari SL (di ATAU di atasnya) ->
+        # SL dipindah ke sisi aman level: L + buffer (max: tak pernah mengetatkan)
+        m = is_s & ~np.isnan(sl_a)
+        lvl_hi2 = np.ceil(sl_a / major) * major
+        lvl_lo2 = lvl_hi2 - major
+        near_hi = (lvl_hi2 - sl_a) <= rprox
+        near_lo = (sl_a - lvl_lo2) <= rprox
+        L = np.where(near_hi, lvl_hi2, lvl_lo2)
+        unsafe = m & (near_hi | near_lo) & (L > d["entry"].to_numpy())
+        sl_a[unsafe] = np.maximum(sl_a[unsafe], L[unsafe] + rbuf[unsafe])
+        # TP2 short
+        m = is_s & ~np.isnan(tp2_a)
+        rl = np.ceil(tp2_a / major) * major
+        snap = m & (rl < d["entry"].to_numpy()) & (rl - tp2_a <= rprox) & (rl + rbuf < d["entry"].to_numpy())
+        tp2_a[snap] = rl[snap] + rbuf[snap]
+
+        d["sl"], d["tp2"] = sl_a, tp2_a
+
     d["score"] = np.where(s == 1, score_l, np.where(s == -1, score_s, 0))
     d["reason"] = np.where(s == 1, "TREND+MOM+VP+PA+VOL long",
                            np.where(s == -1, "TREND+MOM+VP+PA+VOL short", ""))

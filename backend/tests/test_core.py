@@ -68,6 +68,40 @@ def test_engine_direction_filters():
     assert (ss["signal"] == 1).all() if len(ss) else True
 
 
+def test_engine_fib_gate_premium_discount():
+    """fib_gate=True: LONG hanya di discount (close <= EQ 0.5 rentang 120 bar),
+    SHORT hanya di premium."""
+    df = synth_df(1200, seed=7)
+    s = generate_signals(df, loose_cfg(fib_gate=True, fib_lookback=120))
+    if s.empty:
+        pytest.skip("tidak ada sinyal pada data uji ini")
+    hi = df["high"].rolling(120).max()
+    lo = df["low"].rolling(120).min()
+    eq = lo + 0.5 * (hi - lo)
+    for t, row in s.iterrows():
+        e = eq.loc[t]
+        if row["signal"] == 1:
+            assert row["entry"] <= e, f"LONG di premium @ {t}"
+        else:
+            assert row["entry"] >= e, f"SHORT di discount @ {t}"
+
+
+def test_engine_round_gate_sl_clear_of_levels():
+    """round_gate=True: SL tak boleh menempel level bulat besar — jarak ke
+    level terdekat harus > round_prox (SL anti-sweep sudah dipindahkan)."""
+    df = synth_df(1500, seed=9)                    # harga ~2000 -> major = 100
+    cfg = loose_cfg(round_gate=True, round_prox_atr=0.25)
+    s = generate_signals(df, cfg)
+    if s.empty:
+        pytest.skip("tidak ada sinyal pada data uji ini")
+    for t, row in s.iterrows():
+        sl, atr = row["sl"], row["atr"]
+        prox = 0.25 * atr
+        lvl_lo = np.floor(sl / 100.0) * 100
+        dist = min(sl - lvl_lo, (lvl_lo + 100) - sl)   # jarak ke level terdekat
+        assert dist > prox, f"SL {sl} menempel level bulat @ {t} (jarak {dist:.3f})"
+
+
 # ----------------------------- backtest -------------------------------------
 def test_backtest_tp1_then_sl_at_breakeven():
     """Entry 100, SL 95 (risk 5), TP1 105 (=1R):

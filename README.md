@@ -188,6 +188,13 @@ eksperimental.
 ditolak oleh data: memangkas winner TP2 — biarkan off), dan gate news live
 (entry ditahan +-30 mnt di sekitar berita berdampak tinggi).
 
+Eksperimen **fib premium/discount gate** & **harga psikologis (angka
+bulat)** sudah dibangun (`Config.fib_gate` / `round_gate`, unit-tested) dan
+DITOLAK oleh data untuk champion: memangkas terlalu banyak trade (fib) atau
+netral-memburuk (round), tidak konsisten PAXG vs BTC. Tetap tersedia sebagai
+config opsional untuk eksperimen; anti-sweep via swing-buffer (0.5 ATR) sudah
+meng-cover sebagian besar kasus level bulat.
+
 Bukti edge bukan jaminan masa depan: paruh kedua 2026 datar, dan hasil live
 akan berbeda dari backtest. Pakai risiko kecil dan pantau PaperSim.
 
