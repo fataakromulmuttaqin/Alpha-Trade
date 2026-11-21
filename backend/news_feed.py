@@ -196,6 +196,22 @@ class NewsFeed:
         """Item terbaru untuk marker chart (maks n)."""
         return self.items[:n]
 
+    def high_impact_near(self, t, window_min=30, min_score=4):
+        """Item berdampak tinggi dalam +-window menit dari waktu sinyal t,
+        atau None bila aman entry. Dipakai gate eksekusi live (PaperSim)."""
+        try:
+            t0 = _parse(t if isinstance(t, str) else t.isoformat())
+        except Exception:
+            return None
+        lo, hi = t0 - timedelta(minutes=window_min), t0 + timedelta(minutes=window_min)
+        best = None
+        for it in self.items:
+            ti = _parse(it.get("time", ""))
+            if ti is not None and lo <= ti <= hi and it.get("score", 0) >= min_score:
+                if best is None or it.get("score", 0) > best.get("score", 0):
+                    best = it
+        return best
+
     def start_background(self, every=300):
         """Refresh berkala di background thread (hemat kuota: cek TTL dulu)."""
         def loop():

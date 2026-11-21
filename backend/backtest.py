@@ -13,12 +13,30 @@ from .smc_structure import structure_confirms
 
 
 def backtest(df, signals, cost=0.0, risk_pct=1.0, equity0=10_000.0,
-             tp1_frac=0.5, max_hold=200):
+             tp1_frac=0.5, max_hold=200,
+             daily_stop_r=0.0, daily_max_trades=0,
+             trail_start_r=0.0, trail_atr=0.0):
+    """daily_stop_r      : berhenti entry sisa hari itu setelah rugi kumulatif
+                           mencapai -X R (R diakui saat trade close, dihitung
+                           pada hari ENTRY-nya). 0 = mati.
+    daily_max_trades    : batas jumlah entry per hari kalender. 0 = mati.
+    trail_start_r/trail_atr : setelah profit mencapai trail_start_r x risk,
+                           stop di-trail pada jarak trail_atr x ATR dari harga
+                           terbaik. Butuh kolom 'atr' di signals. 0 = mati."""
     o, h, l = df["open"].to_numpy(), df["high"].to_numpy(), df["low"].to_numpy()
     pos = {t: i for i, t in enumerate(df.index)}
     equity, rows, busy_until = equity0, [], -1
+    day_r, day_count, cur_day = 0.0, 0, None
+    has_atr = "atr" in signals.columns
 
     for t, s in signals.iterrows():
+        day = t.date()
+        if day != cur_day:
+            cur_day, day_r, day_count = day, 0.0, 0
+        if daily_stop_r > 0 and day_r <= -daily_stop_r:
+            continue                                        # daily stop: no entry
+        if daily_max_trades > 0 and day_count >= daily_max_trades:
+            continue
         i = pos[t] + 1
         if i >= len(df) or i <= busy_until:
             continue
@@ -31,16 +49,40 @@ def backtest(df, signals, cost=0.0, risk_pct=1.0, equity0=10_000.0,
         # geser level mengikuti harga entry riil
         shift = entry - s["entry"]
         sl, tp1, tp2 = sl + shift, tp1 + shift, tp2 + shift
+        atr = float(s["atr"]) if has_atr else 0.0
+        trail_on = trail_atr > 0 and trail_start_r > 0 and atr > 0
+        best = entry
 
         stop, hit1, r_total, exit_i = sl, False, 0.0, min(i + max_hold, len(df) - 1)
         for j in range(i, min(i + max_hold, len(df))):
             hi, lo = h[j], l[j]
-            stop_hit = lo <= stop if d == 1 else hi >= stop
-            if stop_hit:                                   # SL didahulukan
+            # 1) SL dengan stop iterasi sebelumnya (SL didahulukan)
+            if (lo <= stop) if d == 1 else (hi >= stop):
                 r_part = d * (stop - entry) / risk
                 r_total += (1 - tp1_frac if hit1 else 1.0) * r_part
                 exit_i = j
                 break
+            # 2) update trailing: stop hanya bergerak searah keuntungan
+            if trail_on:
+                if d == 1:
+                    if hi > best:
+                        best = hi
+                    if best - entry >= trail_start_r * risk:
+                        stop = max(stop, best - trail_atr * atr)
+                        if lo <= stop:                      # stop baru tersentuh di bar yang sama
+                            r_total += (1 - tp1_frac if hit1 else 1.0) * d * (stop - entry) / risk
+                            exit_i = j
+                            break
+                else:
+                    if lo < best or best == entry:
+                        best = lo
+                    if entry - best >= trail_start_r * risk:
+                        stop = min(stop, best + trail_atr * atr)
+                        if hi >= stop:
+                            r_total += (1 - tp1_frac if hit1 else 1.0) * d * (stop - entry) / risk
+                            exit_i = j
+                            break
+            # 3) TP1 lalu TP2
             if not hit1 and ((hi >= tp1) if d == 1 else (lo <= tp1)):
                 hit1 = True
                 r_total += tp1_frac * d * (tp1 - entry) / risk
@@ -55,6 +97,8 @@ def backtest(df, signals, cost=0.0, risk_pct=1.0, equity0=10_000.0,
 
         r_total -= cost / risk
         equity *= 1 + risk_pct / 100 * r_total
+        day_r += r_total
+        day_count += 1
         busy_until = exit_i
         rows.append({"time": t, "dir": d, "entry": entry, "R": r_total,
                      "equity": equity, "bars": exit_i - i + 1})

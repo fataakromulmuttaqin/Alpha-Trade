@@ -36,9 +36,12 @@ REENTRY_TP2_RR = 3.0
 
 
 class PaperSim:
-    def __init__(self, path="sim_trades.json", risk_pct=RISK_PCT):
+    def __init__(self, path="sim_trades.json", risk_pct=RISK_PCT,
+                 daily_stop_r=0.0, daily_max_trades=0):
         self.path = path
         self.risk_pct = risk_pct
+        self.daily_stop_r = daily_stop_r        # berhenti entry setelah -X R/hari
+        self.daily_max_trades = daily_max_trades  # batas entry per hari (0 = off)
         self.trades = []          # trade yang sudah selesai (history)
         self.open = []            # trade berjalan
         self.pending = None       # sinyal menunggu fill di open berikutnya
@@ -75,7 +78,24 @@ class PaperSim:
 
     # ----------------------------- signal in -------------------------------
     def queue_signal(self, t, side, entry, sl, tp1, tp2, mode="", kind=""):
-        """Sinyal lolos filter -> antre; fill di OPEN candle berikutnya."""
+        """Sinyal lolos filter -> antre; fill di OPEN candle berikutnya.
+        Gate risiko harian: daily stop (rugi kumulatif hari entry) & batas
+        jumlah trade per hari — trade yang sedang berjalan tidak dihitung."""
+        day = str(t)[:10]
+        if self.daily_stop_r > 0:
+            day_r = sum(float(x.get("r", 0) or 0) for x in self.trades
+                        if str(x.get("time", ""))[:10] == day)
+            if day_r <= -self.daily_stop_r:
+                print(f"[sim] daily stop {day}: {day_r:.2f}R <= "
+                      f"-{self.daily_stop_r}R — sinyal dilewati", flush=True)
+                return
+        if self.daily_max_trades > 0:
+            day_n = sum(1 for x in self.trades
+                        if str(x.get("time", ""))[:10] == day)
+            if day_n >= self.daily_max_trades:
+                print(f"[sim] batas {self.daily_max_trades} trade/hari tercapai "
+                      f"({day}) — sinyal dilewati", flush=True)
+                return
         self.pending = {"sig_time": str(t), "side": "LONG" if side == 1 else "SHORT",
                         "sig_entry": float(entry), "sl": float(sl), "tp1": float(tp1),
                         "tp2": float(tp2), "mode": mode, "kind": kind}

@@ -63,7 +63,9 @@ class AppState:
         self.entry_tf = "15m"                        # default; ditimpa main() setelah parse arg
         self.htf = "4h"                              # — mencegah /api/snapshot error saat boot
         self.deep_history = {}                       # tf -> df history tradoor (chart ALL)
-        self.sim = PaperSim()                        # simulasi eksekusi internal
+        self.sim = PaperSim(                         # simulasi eksekusi internal
+            daily_stop_r=float(os.getenv("AT_SIM_DAILY_STOP", "0") or 0),
+            daily_max_trades=int(os.getenv("AT_SIM_MAX_TRADES", "0") or 0))
         self.news_feed = NewsFeed()                  # berita 3 provider + fallback
         self._view_cache = {}                        # view_tf -> (ts, snap)
 
@@ -408,6 +410,20 @@ class AppState:
                 print(f"[sinyal disaring] {kind} {entry['side']} {entry['time']} "
                       f"entry={entry['entry']} skor={entry['score']} "
                       f"(SIGNAL {kind}: OFF)", flush=True)
+                continue
+            # gate news: jangan entry +-30 mnt di sekitar berita berdampak tinggi
+            hit = None
+            try:
+                hit = self.news_feed.high_impact_near(t, window_min=30)
+            except Exception:
+                hit = None
+            if hit is not None:
+                entry["kind"] = "NEWS"
+                self.suppressed.insert(0, entry)
+                self.suppressed = self.suppressed[:30]
+                print(f"[sinyal ditahan NEWS] {entry['side']} {entry['time']} "
+                      f"entry={entry['entry']} — '{hit.get('title', '')[:70]}'",
+                      flush=True)
                 continue
             entry["kind"] = kind
             self.signals_log.insert(0, entry)

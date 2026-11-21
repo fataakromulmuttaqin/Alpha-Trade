@@ -293,7 +293,8 @@ def generate_signals(df, cfg=Config(), htf_df=None):
     d["score"] = np.where(s == 1, score_l, np.where(s == -1, score_s, 0))
     d["reason"] = np.where(s == 1, "TREND+MOM+VP+PA+VOL long",
                            np.where(s == -1, "TREND+MOM+VP+PA+VOL short", ""))
-    return d[d["signal"] != 0][["signal", "entry", "sl", "tp1", "tp2", "score", "reason"]]
+    return d[d["signal"] != 0][["signal", "entry", "sl", "tp1", "tp2", "score",
+                                "reason", "atr"]]
 
 
 def position_size(equity, entry, sl, risk_pct=1.0, contract_size=1.0):
