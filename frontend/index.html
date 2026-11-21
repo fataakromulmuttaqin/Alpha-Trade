@@ -2,7 +2,10 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0a0c10">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
 <title>ALPHA-TRADE — SMC ENGINE</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="theme-glass.css">
@@ -292,6 +295,15 @@
 
 </div><!-- /content -->
 </div><!-- /app-shell -->
+
+<!-- ================= BOTTOM NAV (ponsel) ================= -->
+<nav class="bottom-nav" id="bottom-nav">
+  <button class="bn-btn" data-view="trading"><span class="ico">📈</span><span class="lbl">TRADING</span></button>
+  <button class="bn-btn" data-view="zona"><span class="ico">🗺️</span><span class="lbl">ZONA</span></button>
+  <button class="bn-btn" data-view="struktur"><span class="ico">📐</span><span class="lbl">STRUKTUR</span></button>
+  <button class="bn-btn" data-view="news"><span class="ico">📰</span><span class="lbl">NEWS</span></button>
+  <button class="bn-btn" data-view="sim"><span class="ico">🧪</span><span class="lbl">SIM</span></button>
+</nav>
 
 <div class="footer-note"><span id="conn-status" class="dim-text">menghubungkan…</span><button class="btn-ghost sm" id="btn-theme" title="ganti tema: glassmorphism / default">THEME: GLASS</button><button class="btn-ghost sm" id="btn-reset-layout" title="kembalikan posisi semua splitter ke bawaan">RESET LAYOUT</button></div>
 

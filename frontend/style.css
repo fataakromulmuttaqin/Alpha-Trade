@@ -251,11 +251,14 @@ button { cursor: pointer; font-family: inherit; }
   .stat-row { grid-template-columns: repeat(3, 1fr); }
   .main-grid, .bottom-grid { grid-template-columns: 1fr; }
   .main-grid > .vsplit, .bottom-grid > .vsplit, .hsplit { display: none; }
+  .main-grid > * { min-width: 0; }
   .bottom-grid { height: auto; }
   .bottom-grid > * { max-height: 480px; }
   .rail { overflow-y: visible; }
+  .chart-controls { flex-wrap: wrap; }
   .tf-row { flex-wrap: wrap; gap: 8px; justify-content: flex-start; }
   .tf-left, .tf-right { flex-wrap: wrap; }
+  .tf-group { flex-wrap: wrap; }
   .active-row { flex-wrap: wrap; }
 }
 @media (max-width: 700px) {
@@ -351,4 +354,43 @@ body.resizing .hsplit { cursor: row-resize; }
   .side-logo { border-bottom: none; padding: 0 8px 0 2px; margin-bottom: 0; }
   .side-logo-text { display: none; }
   .side-btn { flex: 0 0 auto; width: auto; }
+}
+
+/* ---------- bottom nav (ponsel ≤700px) ---------- */
+.bottom-nav { display: none; }
+
+@media (max-width: 700px) {
+  .sidebar { display: none; }
+  .bottom-nav {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    background: rgba(13, 16, 22, 0.96); border-top: 1px solid var(--border);
+    padding: 4px 2px calc(4px + env(safe-area-inset-bottom, 0px));
+    backdrop-filter: blur(10px);
+  }
+  .bn-btn {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    background: transparent; border: none; color: var(--dim);
+    font-size: 9px; font-weight: 800; letter-spacing: .06em; padding: 4px 0;
+  }
+  .bn-btn .ico { font-size: 17px; line-height: 1; }
+  .bn-btn.on { color: var(--gold); }
+  body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  .footer-note { margin-bottom: 6px; }
+  .topbar { position: sticky; top: 0; z-index: 40; background: rgba(10, 12, 16, 0.92);
+            backdrop-filter: blur(8px); margin: -10px -14px 6px; padding: 8px 14px; }
+  /* chart tinggi pas layar ponsel */
+  #chart-wrap { min-height: 52vh; }
+  .chart-card { min-height: 0; }
+  /* semua kartu: teks panjang pecah rapi, tak keluar layout */
+  .card, .stat-card, .zone-box, .setup-cell { overflow-wrap: anywhere; }
+  .card-title { overflow-wrap: anywhere; }
+  .tf-btn { padding: 5px 10px 4px; }
+  .zone-vals { flex-wrap: wrap; }
+  .zone-price { font-size: 17px; }
+  .stat-value { font-size: 16px; }
+  .sel-mode { max-width: 46vw; }
+  .conf-row { gap: 6px; }
+  .conf-row .val { font-size: 10px; }
+  .rr-val { font-size: 18px; }
+  .big-price { font-size: 20px; }
 }

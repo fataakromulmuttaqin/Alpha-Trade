@@ -893,7 +893,7 @@ function readTogglesFromDom() {
 
 function bindUI() {
   readTogglesFromDom();
-  // ---- navigasi halaman (sidebar) ----
+  // ---- navigasi halaman: sidebar (desktop) + bottom-nav (ponsel) ----
   const VIEWS = ["trading", "zona", "struktur", "news", "sim"];
   const switchView = (name) => {
     if (!VIEWS.includes(name)) name = "trading";
@@ -901,11 +901,15 @@ function bindUI() {
       v.classList.toggle("hidden", v.id !== "view-" + name));
     document.querySelectorAll(".side-btn").forEach(b =>
       b.classList.toggle("on", b.dataset.view === name));
+    document.querySelectorAll(".bn-btn").forEach(b =>
+      b.classList.toggle("on", b.dataset.view === name));
     localStorage.setItem("at-view", name);
     window.scrollTo(0, 0);
     if (name === "trading") setTimeout(() => drawCanvas(), 80); // redraw overlay pasca tampil
   };
   document.querySelectorAll(".side-btn").forEach(b =>
+    b.addEventListener("click", () => switchView(b.dataset.view)));
+  document.querySelectorAll(".bn-btn").forEach(b =>
     b.addEventListener("click", () => switchView(b.dataset.view)));
   switchView(localStorage.getItem("at-view") || "trading");
   document.querySelectorAll(".tf-btn").forEach(b => b.addEventListener("click", () => {
@@ -1189,3 +1193,10 @@ async function boot() {
   startPolling(state.pollOnly ? 4000 : 15000);
 }
 boot();
+
+/* ============================== PWA ============================== */
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
+  addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
