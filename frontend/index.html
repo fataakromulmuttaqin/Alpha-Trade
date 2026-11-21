@@ -9,6 +9,19 @@
 <script src="vendor/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
+<div class="app-shell">
+
+<!-- ================= SIDEBAR NAV ================= -->
+<nav class="sidebar" id="sidebar">
+  <div class="side-logo"><span class="side-logo-badge">AT</span><span class="side-logo-text">ALPHA-TRADE</span></div>
+  <button class="side-btn" data-view="trading"><span class="ico">📈</span>TRADING</button>
+  <button class="side-btn" data-view="zona"><span class="ico">🗺️</span>ZONA &amp; RISK</button>
+  <button class="side-btn" data-view="struktur"><span class="ico">📐</span>STRUKTUR</button>
+  <button class="side-btn" data-view="news"><span class="ico">📰</span>NEWS</button>
+  <button class="side-btn" data-view="sim"><span class="ico">🧪</span>SIMULASI</button>
+</nav>
+
+<div class="content">
 
 <!-- ================= TOP BAR ================= -->
 <header class="topbar">
@@ -34,6 +47,8 @@
   </div>
 </header>
 
+<!-- ================= VIEW: TRADING (utama) ================= -->
+<div class="view" id="view-trading">
 <!-- ================= TIMEFRAME ROW ================= -->
 <div class="tf-row">
   <div class="tf-left">
@@ -154,12 +169,13 @@
     </div>
   </aside>
 </main>
+</div><!-- /view-trading -->
 
-<!-- ================= BOTTOM GRID ================= -->
-<div class="hsplit" id="hs-main" title="seret untuk ubah tinggi baris bawah"></div>
-<section class="bottom-grid">
-  <!-- zone map -->
-  <div class="card zone-card">
+<!-- ================= VIEW: ZONA & RISK ================= -->
+<div class="view hidden" id="view-zona">
+  <div class="page-grid">
+    <!-- zone map -->
+    <div class="card zone-card">
     <div class="card-head">
       <div class="card-title">ZONE MAP — SUPPLY &amp; DEMAND</div>
       <div class="zone-controls">
@@ -203,26 +219,17 @@
       </div>
     </div>
   </div>
+  </div><!-- /page-grid -->
+</div><!-- /view-zona -->
 
-  <div class="vsplit" id="vs-b1" title="seret untuk ubah lebar kolom kiri"></div>
+<!-- ================= VIEW: STRUKTUR ================= -->
+<div class="view hidden" id="view-struktur">
+  <div class="page-grid">
+    <div class="card events-card">
+      <div class="card-head"><div class="card-title">MARKET STRUCTURE EVENTS <span class="info">ⓘ</span></div><span class="chip chip-dim" id="events-state">--</span></div>
+      <div id="events-list" class="events-list"></div>
+    </div>
 
-  <!-- kolom tengah: events + news -->
-  <div class="mid-col">
-  <div class="card events-card">
-    <div class="card-head"><div class="card-title">MARKET STRUCTURE EVENTS <span class="info">ⓘ</span></div><span class="chip chip-dim" id="events-state">--</span></div>
-    <div id="events-list" class="events-list"></div>
-  </div>
-
-  <div class="card news-card" id="news-card">
-    <div class="card-head"><div class="card-title">MARKET NEWS <span class="info" id="news-updated"></span></div><span class="chip chip-dim" id="news-count">0</span></div>
-    <div id="news-list" class="news-list"></div>
-  </div>
-  </div>
-
-  <div class="vsplit" id="vs-b2" title="seret untuk ubah lebar kolom tengah"></div>
-
-  <!-- right bottom: heatmap + setup + journal + log -->
-  <div class="bottom-right">
     <div class="card heatmap-card">
       <div class="card-head"><div class="card-title">MTF CONFLUENCE HEATMAP</div><span class="chip chip-green" id="hm-bias">MONITORING</span></div>
       <table class="hm-table" id="hm-table">
@@ -230,7 +237,22 @@
         <tbody id="hm-body"></tbody>
       </table>
     </div>
+  </div><!-- /page-grid -->
+</div><!-- /view-struktur -->
 
+<!-- ================= VIEW: NEWS ================= -->
+<div class="view hidden" id="view-news">
+  <div class="page-grid page-single">
+    <div class="card news-card" id="news-card">
+      <div class="card-head"><div class="card-title">MARKET NEWS <span class="info" id="news-updated"></span></div><span class="chip chip-dim" id="news-count">0</span></div>
+      <div id="news-list" class="news-list"></div>
+    </div>
+  </div>
+</div><!-- /view-news -->
+
+<!-- ================= VIEW: SIMULASI ================= -->
+<div class="view hidden" id="view-sim">
+  <div class="page-grid">
     <div class="card setup-card">
       <div class="card-title" id="setup-title">TRADE SETUP</div>
       <div class="setup-label" id="su-label"></div>
@@ -265,8 +287,11 @@
       <div class="card-head"><div class="card-title">SIGNAL ACTIVITY LOG</div><button class="btn-ghost sm" id="btn-clear-log">CLEAR</button></div>
       <div id="log-list" class="log-list"><div class="dim-text">— Waiting for signals…</div></div>
     </div>
-  </div>
-</section>
+  </div><!-- /page-grid -->
+</div><!-- /view-sim -->
+
+</div><!-- /content -->
+</div><!-- /app-shell -->
 
 <div class="footer-note"><span id="conn-status" class="dim-text">menghubungkan…</span><button class="btn-ghost sm" id="btn-theme" title="ganti tema: glassmorphism / default">THEME: GLASS</button><button class="btn-ghost sm" id="btn-reset-layout" title="kembalikan posisi semua splitter ke bawaan">RESET LAYOUT</button></div>
 

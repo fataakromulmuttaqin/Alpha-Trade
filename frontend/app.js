@@ -893,6 +893,21 @@ function readTogglesFromDom() {
 
 function bindUI() {
   readTogglesFromDom();
+  // ---- navigasi halaman (sidebar) ----
+  const VIEWS = ["trading", "zona", "struktur", "news", "sim"];
+  const switchView = (name) => {
+    if (!VIEWS.includes(name)) name = "trading";
+    document.querySelectorAll(".view").forEach(v =>
+      v.classList.toggle("hidden", v.id !== "view-" + name));
+    document.querySelectorAll(".side-btn").forEach(b =>
+      b.classList.toggle("on", b.dataset.view === name));
+    localStorage.setItem("at-view", name);
+    window.scrollTo(0, 0);
+    if (name === "trading") setTimeout(() => drawCanvas(), 80); // redraw overlay pasca tampil
+  };
+  document.querySelectorAll(".side-btn").forEach(b =>
+    b.addEventListener("click", () => switchView(b.dataset.view)));
+  switchView(localStorage.getItem("at-view") || "trading");
   document.querySelectorAll(".tf-btn").forEach(b => b.addEventListener("click", () => {
     if (b.classList.contains("disabled")) return;
     switchTf(b.dataset.tf);
@@ -1050,14 +1065,11 @@ function initSplitters() {
     if (!isNaN(v) && v >= min && v <= max) root.style.setProperty("--" + k, v + "px");
   };
   restore("rail-w", 240, 560);
-  restore("b1", 320, 760);
-  restore("b2", 300, 760);
-  restore("bh", 420, 1000);
 
   // simpan posisi sekarang ke localStorage
   const persist = () => {
     const cs = getComputedStyle(root);
-    [["at-rail-w", "--rail-w"], ["at-b1", "--b1"], ["at-b2", "--b2"], ["at-bh", "--bh"]]
+    [["at-rail-w", "--rail-w"]]
       .forEach(([key, cssv]) => {
         const v = parseFloat(cs.getPropertyValue(cssv));
         if (!isNaN(v)) localStorage.setItem(key, v);
@@ -1108,40 +1120,10 @@ function initSplitters() {
     (v) => root.style.setProperty("--rail-w", v + "px"),
     [["--rail-w", null]]);
 
-  // lebar kolom bawah kiri: seret KANAN untuk melebarkan (kolom lain menyesuaikan)
-  const gridW = () =>
-    document.querySelector(".bottom-grid").getBoundingClientRect().width;
-  makeDrag($("vs-b1"),
-    () => {
-      const gw = gridW();
-      return { axis: "x", val: document.querySelector(".zone-card").getBoundingClientRect().width,
-               min: 320, max: Math.max(380, gw - 640) };
-    },
-    (v) => root.style.setProperty("--b1", v + "px"),
-    [["--b1", null]]);
-
-  // lebar kolom bawah tengah: seret KANAN untuk melebarkan
-  makeDrag($("vs-b2"),
-    () => {
-      const gw = gridW();
-      const b1w = document.querySelector(".zone-card").getBoundingClientRect().width;
-      return { axis: "x", val: document.querySelector(".mid-col").getBoundingClientRect().width,
-               min: 300, max: Math.max(340, gw - b1w - 340) };
-    },
-    (v) => root.style.setProperty("--b2", v + "px"),
-    [["--b2", null]]);
-
-  // tinggi baris bawah: seret ATAS untuk menambah tinggi
-  makeDrag($("hs-main"),
-    () => ({ axis: "y", val: document.querySelector(".bottom-grid").getBoundingClientRect().height,
-             min: 420, max: Math.min(1000, window.innerHeight - 180) }),
-    (v) => root.style.setProperty("--bh", v + "px"),
-    [["--bh", null]]);
-
   // tombol reset layout
   const rb = $("btn-reset-layout");
   if (rb) rb.addEventListener("click", () => {
-    ["rail-w", "b1", "b2", "bh"].forEach(k => {
+    ["rail-w"].forEach(k => {
       localStorage.removeItem("at-" + k);
       root.style.removeProperty("--" + k);
     });

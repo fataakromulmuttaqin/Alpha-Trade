@@ -312,3 +312,43 @@ button { cursor: pointer; font-family: inherit; }
 body.resizing { cursor: col-resize; user-select: none; }
 body.resizing .hsplit { cursor: row-resize; }
 .vsplit, .hsplit { transition: background .15s; }
+
+/* ---------- sidebar nav + halaman terpisah ---------- */
+.app-shell { display: flex; gap: 10px; align-items: flex-start; }
+.sidebar {
+  position: sticky; top: 10px; flex: 0 0 178px; width: 178px;
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 8px;
+}
+.side-logo { display: flex; align-items: center; gap: 8px; padding: 0 6px 10px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.side-logo-badge { background: var(--gold); color: #1a1405; font-weight: 900; border-radius: 7px; padding: 4px 7px; font-size: 12px; }
+.side-logo-text { font-weight: 900; letter-spacing: .08em; font-size: 11px; color: var(--gold); }
+.side-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 12px; border-radius: 9px; border: 1px solid transparent;
+  background: transparent; color: var(--dim); font-weight: 700; font-size: 12px;
+  letter-spacing: .05em; text-align: left; white-space: nowrap;
+}
+.side-btn:hover { background: var(--panel-2); color: var(--text); }
+.side-btn.on { background: var(--gold-soft); border-color: rgba(217,182,74,.4); color: var(--gold); }
+.side-btn .ico { font-size: 15px; width: 20px; text-align: center; }
+.content { flex: 1; min-width: 0; }
+.view.hidden { display: none; }
+.page-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  gap: 10px; align-items: start;
+}
+.page-grid.page-single { grid-template-columns: minmax(0, 860px); }
+
+@media (max-width: 1200px) {
+  .app-shell { display: block; }
+  .sidebar {
+    position: static; width: auto; flex: none;
+    flex-direction: row; align-items: center; overflow-x: auto;
+    margin-bottom: 10px; padding: 8px;
+  }
+  .side-logo { border-bottom: none; padding: 0 8px 0 2px; margin-bottom: 0; }
+  .side-logo-text { display: none; }
+  .side-btn { flex: 0 0 auto; width: auto; }
+}
