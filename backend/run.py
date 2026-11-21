@@ -114,10 +114,10 @@ class AppState:
 
     def apply_settings(self, body):
         """POST /api/settings: sensitivity, exit_protocol, filter sinyal."""
-        from .godmode_engine import apply_mode
+        from .godmode_engine import apply_mode, SENSITIVITY_PRESETS, EXIT_PRESETS
         out = {"applied": []}
         sens = body.get("sensitivity")
-        if sens in ("auto", "golden", "aggressive", "standard", "precision", "pingpong"):
+        if sens in ("auto", *SENSITIVITY_PRESETS.keys()):
             self.sensitivity = sens
             if sens == "auto":
                 self._auto_cond = None                 # paksa resolusi ulang
@@ -128,7 +128,7 @@ class AppState:
                 apply_mode(self.cfg, sensitivity=sens)
             out["applied"].append("sensitivity:" + sens)
         ex = body.get("exit_protocol")
-        if ex in ("quick", "nitro", "hold"):
+        if ex in EXIT_PRESETS.keys():
             self.exit_protocol = ex
             apply_mode(self.cfg, exit_protocol=ex)
             out["applied"].append("exit:" + ex)
@@ -621,6 +621,11 @@ async def main():
     ap.add_argument("--tradoor-market", default=os.getenv("AT_TRADOOR_MARKET", ""),
                     help="market tradoor, mis. binance-perp:BTCUSDT (default dari --symbol)")
     ap.add_argument("--bars", type=int, default=int(os.getenv("AT_BARS", "1500")))
+    ap.add_argument("--sensitivity", default=os.getenv("AT_SENSITIVITY", "auto"),
+                    help="preset mode saat boot (mis. edge1h); auto = adaptif rezim")
+    ap.add_argument("--exit", dest="exit_protocol",
+                    default=os.getenv("AT_EXIT", "quick"),
+                    help="exit protocol saat boot (engine = SL/TP dari tuning)")
     ap.add_argument("--port", type=int,
                     default=int(os.getenv("AT_PORT") or os.getenv("PORT") or "8788"))
     ap.add_argument("--ws-port", type=int, default=int(os.getenv("AT_WS_PORT", "8789")))
@@ -629,6 +634,16 @@ async def main():
     cfg = Config(htf=args.htf)
     executor = TestnetExecutor(market=args.market)
     state = AppState(args.symbol, cfg, executor, label=args.label)
+    # preset boot: dipasang SEBELUM seeding/replay agar sim & sinyal terekam
+    # langsung di bawah mode yang diminta
+    from .godmode_engine import SENSITIVITY_PRESETS, EXIT_PRESETS, apply_mode
+    if args.sensitivity in SENSITIVITY_PRESETS or args.sensitivity == "auto":
+        state.sensitivity = args.sensitivity
+    if args.exit_protocol in EXIT_PRESETS:
+        state.exit_protocol = args.exit_protocol
+    if state.sensitivity != "auto":
+        apply_mode(state.cfg, sensitivity=state.sensitivity,
+                   exit_protocol=state.exit_protocol)
     server = DashboardServer(state, args.port, args.ws_port)
     state.server = server
     await server.start()
