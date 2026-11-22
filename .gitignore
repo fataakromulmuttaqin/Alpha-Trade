@@ -34,3 +34,6 @@ botkeep.key
 
 # native rust build
 native/target/
+
+# pengaturan runtime native (berisi token)
+native/data/
