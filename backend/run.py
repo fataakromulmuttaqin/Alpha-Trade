@@ -10,6 +10,7 @@ Eksekusi  : EXECUTION_MODE=off|paper|testnet  (lihat testnet_executor.py)
 """
 import argparse
 import asyncio
+import json as _json_mod
 import os
 import time
 
@@ -56,6 +57,14 @@ class AppState:
         self._auto_cand = None                       # rezim kandidat (hysteresis)
         self._auto_cand_n = 0
         self._auto_resolved = None                   # preset terpilih utk ditampilkan
+        # pengaturan notifikasi (cache/app_settings.json) — diatur dari UI
+        self.app_settings = {}
+        try:
+            if os.path.exists("cache/app_settings.json"):
+                with open("cache/app_settings.json", encoding="utf-8") as f:
+                    self.app_settings = _json_mod.load(f)
+        except Exception:
+            self.app_settings = {}
         self.signal_golden = True                    # SIGNAL GOLDEN: ON/OFF
         self.signal_high_risk = False                # SIGNAL HIGH RISK: ON/OFF
         self.suppressed = []                         # sinyal yang disaring filter
@@ -140,6 +149,24 @@ class AppState:
         if "signal_high_risk" in body:
             self.signal_high_risk = bool(body["signal_high_risk"])
             out["applied"].append(f"signal_high_risk:{self.signal_high_risk}")
+        # pengaturan notifikasi Telegram (persisten: cache/app_settings.json)
+        st = getattr(self, "app_settings", None)
+        if st is None:
+            st = {}
+        changed_tg = False
+        for k in ("tg_token", "tg_chat_id", "tg_on", "notify_signals", "notify_trades"):
+            if k in body:
+                st[k] = body[k]
+                changed_tg = True
+        if changed_tg:
+            self.app_settings = st
+            try:
+                os.makedirs("cache", exist_ok=True)
+                with open("cache/app_settings.json", "w", encoding="utf-8") as f:
+                    json.dump(st, f)
+                out["applied"].append("telegram")
+            except Exception as e:
+                print("[settings] gagal simpan:", e, flush=True)
         out["sensitivity"] = self.sensitivity
         out["exit_protocol"] = self.exit_protocol
         out["signal_golden"] = self.signal_golden
@@ -436,6 +463,27 @@ class AppState:
                   f"{entry['side']} entry={entry['entry']} sl={entry['sl']} "
                   f"tp1={entry['tp1']} tp2={entry['tp2']} skor={entry['score']}", flush=True)
             self.executor.execute_signal(self.symbol, row)   # no-op saat mode off
+            self._notify(f"⚡ <b>{self.symbol}</b> {kind} {entry['side']} @ {entry['entry']}"
+                         f" | SL {entry['sl']} TP2 {entry['tp2']} | skor {entry['score']}")
+
+    def _notify(self, text):
+        """Kirim notifikasi Telegram bila diatur & aktif (fire-and-forget)."""
+        st = getattr(self, "app_settings", {}) or {}
+        if not st.get("tg_on", True):
+            return
+        if text.startswith("⚡") and not st.get("notify_signals", True):
+            return
+        if text.startswith(("✅", "🔻", "⏱")) and not st.get("notify_trades", True):
+            return
+        token, chat = st.get("tg_token", ""), st.get("tg_chat_id", "")
+        if not token or not chat:
+            return
+        try:
+            import requests as _rq
+            _rq.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                     json={"chat_id": chat, "text": text}, timeout=10)
+        except Exception:
+            pass
 
 
 def load_tradoor_history(source, market, tfs, caps=None):

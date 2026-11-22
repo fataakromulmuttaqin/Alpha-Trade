@@ -108,6 +108,19 @@ class DashboardServer:
                             return self._json(json.load(f))
                     except (json.JSONDecodeError, OSError):
                         return self._json({"error": "laporan rusak; jalankan ulang backend.research_report"}, 503)
+                if u.path == "/api/settings":
+                    st = getattr(srv.state, "app_settings", None) or {}
+                    return self._json({
+                        "sensitivity": srv.state.sensitivity,
+                        "exit_protocol": srv.state.exit_protocol,
+                        "tg_token": st.get("tg_token", ""),
+                        "tg_chat_id": st.get("tg_chat_id", ""),
+                        "tg_on": st.get("tg_on", True),
+                        "notify_signals": st.get("notify_signals", True),
+                        "notify_trades": st.get("notify_trades", True),
+                    })
+                if u.path == "/api/tg-test" and self.command == "POST":
+                    pass  # ditangani do_POST
                 # static file
                 path = u.path
                 if path == "/":
@@ -129,6 +142,29 @@ class DashboardServer:
 
             def do_POST(self):
                 u = urlparse(self.path)
+                if u.path == "/api/tg-test":
+                    try:
+                        length = int(self.headers.get("Content-Length") or 0)
+                        body = json.loads(self.rfile.read(length) or b"{}")
+                    except Exception:
+                        body = {}
+                    st = getattr(srv.state, "app_settings", {}) or {}
+                    token = body.get("tg_token") or st.get("tg_token", "")
+                    chat = body.get("tg_chat_id") or st.get("tg_chat_id", "")
+                    if not token or not chat:
+                        return self._json({"ok": False, "error": "token/chat kosong"}, 400)
+                    try:
+                        import requests as _rq
+                        r = _rq.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                                     json={"chat_id": chat, "text": "✅ Alpha-Trade: tes notifikasi berhasil"},
+                                     timeout=12)
+                        j = r.json()
+                        if r.status_code == 200 and j.get("ok"):
+                            return self._json({"ok": True, "msg": "tes terkirim — cek Telegram Anda"})
+                        return self._json({"ok": False,
+                                           "error": f"Telegram: {r.status_code} — {j.get('description','?')}"}, 502)
+                    except Exception as e:
+                        return self._json({"ok": False, "error": str(e)}, 502)
                 if u.path != "/api/settings":
                     self.send_response(404)
                     self.end_headers()

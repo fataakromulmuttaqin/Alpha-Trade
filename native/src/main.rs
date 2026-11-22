@@ -2,7 +2,7 @@
 //! feed Binance multi-simbol + engine 5-gate + PaperSim + Telegram.
 
 
-use alpha_trade_native::{engine, feed, godmode, indicators, news, sim, snapshot, tg};
+use alpha_trade_native::{engine, feed, godmode, indicators, news, settings, sim, snapshot, tg};
 
 use axum::{
     extract::{Query, State},
@@ -39,6 +39,9 @@ struct App {
     news: serde_json::Value,
     max_spread_atr: f64,
     vol_target: bool,
+    settings: settings::Settings,
+    settings_path: String,
+    client: reqwest::Client,
 }
 
 impl App {
@@ -110,11 +113,22 @@ async fn main() {
 
     let news_v = news::fetch_news(&client, std::env::var("NEWS_KEY_NEWSDATA").ok().as_deref()).await;
 
-    let tg = tg::Telegram::from_env();
+    // pengaturan persisten (data/settings.json) — Telegram diatur dari UI
+    let settings_path = {
+        let mut p = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        p.push("data");
+        p.push("settings.json");
+        p.to_string_lossy().to_string()
+    };
+    let settings = settings::Settings::load_or_default(&settings_path);
+    println!("[settings] Telegram: {} | notif on: {}",
+             if settings.tg_token.is_empty() { "(belum diatur)" } else { "terpasang" },
+             settings.tg_on);
     let app = Arc::new(RwLock::new(App {
         syms, cfg, sensitivity: sens, exit_protocol: exitp, entry_tf: entry_tf.clone(),
         signals_log: vec![], suppressed: vec![], suppressed_count: 0,
         news: news_v, max_spread_atr, vol_target,
+        settings, settings_path, client: client.clone(),
     }));
 
     // ---- replay riwayat tiap simbol (setara sim_replay Python)
@@ -124,18 +138,19 @@ async fn main() {
         for name in names {
             replay_symbol(&mut a, &name, &entry_tf);
         }
-        if let Some(t) = &tg {
-            let t = t.clone();
-            let cl = client.clone();
-            tokio::spawn(async move {
-                t.send(&cl, format!("🟢 <b>Alpha-Trade native</b> start — {} | EDGE-1H + ENGINE | daily-stop {}R",
-                    symbols.join(", "), daily_stop).as_str()).await;
-            });
+        if a.settings.tg_on {
+            if let Some(t) = tg::Telegram::from_parts(&a.settings.tg_token, &a.settings.tg_chat_id) {
+                let cl = client.clone();
+                tokio::spawn(async move {
+                    t.send(&cl, format!("🟢 <b>Alpha-Trade native</b> start — {} | EDGE-1H + ENGINE",
+                        symbols.join(", ")).as_str()).await;
+                });
+            }
         }
     }
 
     // ---- feed loop
-    let (feed_app, feed_client, feed_entry_tf, feed_tg) = (app.clone(), client.clone(), entry_tf.clone(), tg.clone());
+    let (feed_app, feed_client, feed_entry_tf) = (app.clone(), client.clone(), entry_tf.clone());
     tokio::spawn(async move {
         loop {
             let msgs = {
@@ -161,9 +176,22 @@ async fn main() {
                 }
                 msgs
             };
-            if let Some(t) = &feed_tg {
-                for m in &msgs {
-                    t.send(&feed_client, m).await;
+            // notifikasi: settings dibaca SETIAP putaran (perubahan UI langsung efektif)
+            let (tg_now, tg_on, n_sig, n_trd) = {
+                let a = feed_app.read().await;
+                (tg::Telegram::from_parts(&a.settings.tg_token, &a.settings.tg_chat_id),
+                 a.settings.tg_on,
+                 a.settings.notify_signals, a.settings.notify_trades)
+            };
+            if tg_on {
+                if let Some(t) = tg_now {
+                    for m in &msgs {
+                        // ⚡ = sinyal, ✅ = penutupan trade — masing-masing bisa dimatikan
+                        if (m.starts_with("⚡") && !n_sig) || (m.starts_with("✅") && !n_trd) {
+                            continue;
+                        }
+                        t.send(&feed_client, m).await;
+                    }
                 }
             }
             tokio::time::sleep(std::time::Duration::from_secs(4)).await;
@@ -192,7 +220,8 @@ async fn main() {
         .route("/api/sim", get(sim_ep))
         .route("/api/news", get(news_ep))
         .route("/api/config", get(config_ep))
-        .route("/api/settings", post(settings_ep))
+        .route("/api/settings", get(settings_get).post(settings_ep))
+        .route("/api/tg-test", post(tg_test_ep))
         .fallback(static_files)
         .with_state(app);
 
@@ -408,12 +437,28 @@ async fn config_ep() -> Response {
 }
 
 #[derive(serde::Deserialize)]
-struct Settings {
+struct SettingsBody {
     sensitivity: Option<String>,
     exit_protocol: Option<String>,
+    tg_token: Option<String>,
+    tg_chat_id: Option<String>,
+    tg_on: Option<bool>,
+    notify_signals: Option<bool>,
+    notify_trades: Option<bool>,
 }
 
-async fn settings_ep(State(app): State<SharedApp>, Json(body): Json<Settings>) -> Response {
+async fn settings_get(State(app): State<SharedApp>) -> Response {
+    let a = app.read().await;
+    cors(Json(json!({
+        "sensitivity": a.sensitivity, "exit_protocol": a.exit_protocol,
+        "tg_token": a.settings.tg_token, "tg_chat_id": a.settings.tg_chat_id,
+        "tg_on": a.settings.tg_on,
+        "notify_signals": a.settings.notify_signals,
+        "notify_trades": a.settings.notify_trades,
+    }))).into_response()
+}
+
+async fn settings_ep(State(app): State<SharedApp>, Json(body): Json<SettingsBody>) -> Response {
     let mut a = app.write().await;
     let mut applied = vec![];
     if let Some(s) = &body.sensitivity {
@@ -430,11 +475,43 @@ async fn settings_ep(State(app): State<SharedApp>, Json(body): Json<Settings>) -
             applied.push(format!("exit:{e}"));
         }
     }
-    println!("[settings] {applied:?}");
+    // pengaturan notifikasi (persisten)
+    if let Some(tok) = &body.tg_token { a.settings.tg_token = tok.trim().to_string(); }
+    if let Some(chat) = &body.tg_chat_id { a.settings.tg_chat_id = chat.trim().to_string(); }
+    if let Some(v) = body.tg_on { a.settings.tg_on = v; applied.push(format!("tg_on:{v}")); }
+    if let Some(v) = body.notify_signals { a.settings.notify_signals = v; }
+    if let Some(v) = body.notify_trades { a.settings.notify_trades = v; }
+    a.settings.save(&a.settings_path);
+    println!("[settings] {applied:?} (tersimpan: {})", a.settings_path);
     cors(Json(json!({
         "applied": applied, "sensitivity": a.sensitivity,
         "exit_protocol": a.exit_protocol,
+        "tg_on": a.settings.tg_on,
+        "tg_terpasang": !a.settings.tg_token.is_empty() && !a.settings.tg_chat_id.is_empty(),
     }))).into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct TgTest {
+    tg_token: Option<String>,
+    tg_chat_id: Option<String>,
+}
+
+async fn tg_test_ep(State(app): State<SharedApp>,
+                    Json(body): Json<TgTest>) -> Response {
+    // token/chat kosong = pakai yang tersimpan
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(12)).build().unwrap();
+    let a = app.read().await;
+    let token = body.tg_token.unwrap_or_else(|| a.settings.tg_token.clone());
+    let chat = body.tg_chat_id.unwrap_or_else(|| a.settings.tg_chat_id.clone());
+    drop(a);
+    match tg::Telegram::test_send(&client, &token, &chat).await {
+        Ok(()) => cors(Json(json!({"ok": true, "msg": "tes terkirim — cek Telegram Anda"})))
+            .into_response(),
+        Err(e) => cors((StatusCode::BAD_GATEWAY, Json(json!({"ok": false, "error": e}))))
+            .into_response(),
+    }
 }
 
 async fn static_files(uri: axum::http::Uri) -> Response {

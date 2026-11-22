@@ -915,7 +915,7 @@ function readTogglesFromDom() {
 function bindUI() {
   readTogglesFromDom();
   // ---- navigasi halaman: sidebar (desktop) + bottom-nav (ponsel) ----
-  const VIEWS = ["trading", "zona", "struktur", "news", "sim"];
+  const VIEWS = ["trading", "zona", "struktur", "news", "sim", "setting"];
   const switchView = (name) => {
     if (!VIEWS.includes(name)) name = "trading";
     document.querySelectorAll(".view").forEach(v =>
@@ -933,6 +933,58 @@ function bindUI() {
   document.querySelectorAll(".bn-btn").forEach(b =>
     b.addEventListener("click", () => switchView(b.dataset.view)));
   switchView(localStorage.getItem("at-view") || "trading");
+
+  // ---- halaman PENGATURAN: muat isi form + aksi simpan/tes ----
+  const loadSettingsPage = () => {
+    fetch(api_("/api/settings")).then(r => r.json()).then(s => {
+      $("set-tg-token").value = s.tg_token || "";
+      $("set-tg-chat").value = s.tg_chat_id || "";
+      const tgBtn = $("set-tg-on");
+      tgBtn.textContent = `NOTIF: ${s.tg_on ? "ON" : "OFF"}`;
+      tgBtn.classList.toggle("on", !!s.tg_on);
+      $("set-mode-now").textContent = (s.sensitivity || "-").toUpperCase();
+      $("set-exit-now").textContent = (s.exit_protocol || "-").toUpperCase();
+    }).catch(() => {});
+  };
+  // muat form saat halaman setting dibuka pertama kali / tiap klik menu
+  document.querySelectorAll('[data-view="setting"]').forEach(b =>
+    b.addEventListener("click", loadSettingsPage));
+  loadSettingsPage();
+
+  const tgToggle = $("set-tg-on");
+  if (tgToggle) tgToggle.addEventListener("click", () => {
+    const on = !tgToggle.classList.contains("on");
+    tgToggle.classList.toggle("on", on);
+    tgToggle.textContent = `NOTIF: ${on ? "ON" : "OFF"}`;
+  });
+  const saveSettings = () => {
+    fetch(api_("/api/settings"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tg_token: $("set-tg-token").value,
+        tg_chat_id: $("set-tg-chat").value,
+        tg_on: tgToggle.classList.contains("on"),
+      }),
+    }).then(r => r.json()).then(j => {
+      $("set-status").textContent = j.tg_terpasang
+        ? "✅ tersimpan — notifikasi aktif" : "tersimpan (token/chat belum lengkap)";
+    }).catch(() => { $("set-status").textContent = "gagal menyimpan"; });
+  };
+  const saveBtn = $("btn-set-save");
+  if (saveBtn) saveBtn.addEventListener("click", saveSettings);
+  const testBtn = $("btn-tg-test");
+  if (testBtn) testBtn.addEventListener("click", () => {
+    $("set-status").textContent = "mengirim tes…";
+    fetch(api_("/api/tg-test"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tg_token: $("set-tg-token").value,
+        tg_chat_id: $("set-tg-chat").value,
+      }),
+    }).then(r => r.json()).then(j => {
+      $("set-status").textContent = j.ok ? "✅ " + j.msg : "❌ " + (j.error || "gagal");
+    }).catch(() => { $("set-status").textContent = "❌ jaringan gagal"; });
+  });
   document.querySelectorAll(".tf-btn").forEach(b => b.addEventListener("click", () => {
     if (b.classList.contains("disabled")) return;
     switchTf(b.dataset.tf);

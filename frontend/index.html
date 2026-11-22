@@ -22,6 +22,7 @@
   <button class="side-btn" data-view="struktur"><span class="ico">📐</span>STRUKTUR</button>
   <button class="side-btn" data-view="news"><span class="ico">📰</span>NEWS</button>
   <button class="side-btn" data-view="sim"><span class="ico">🧪</span>SIMULASI</button>
+  <button class="side-btn" data-view="setting"><span class="ico">⚙️</span>PENGATURAN</button>
 </nav>
 
 <div class="content">
@@ -294,6 +295,44 @@
   </div><!-- /page-grid -->
 </div><!-- /view-sim -->
 
+<!-- ================= VIEW: PENGATURAN ================= -->
+<div class="view hidden" id="view-setting">
+  <div class="page-grid page-single">
+    <div class="card settings-card">
+      <div class="card-head"><div class="card-title">PENGATURAN</div><span class="chip chip-dim">tersimpan di server</span></div>
+
+      <div class="card-title" style="margin-top:6px">NOTIFIKASI TELEGRAM</div>
+      <div class="risk-grid">
+        <label>BOT TOKEN
+          <input id="set-tg-token" type="password" placeholder="123456:ABC-DEF... (dari @BotFather)">
+        </label>
+        <label>CHAT ID
+          <input id="set-tg-chat" type="text" placeholder="mis. 123456789 (dari @userinfobot)">
+        </label>
+      </div>
+      <div class="journal-row" style="margin-top:10px">
+        <button class="chip toggle on" id="set-tg-on">NOTIF: ON</button>
+        <button class="btn-gold sm" id="btn-tg-test">TES KIRIM</button>
+        <button class="btn-ghost sm" id="btn-set-save">SIMPAN</button>
+      </div>
+      <div class="ai-reason" id="set-tg-status">
+        Notifikasi terkirim otomatis saat: sinyal masuk, trade ditutup (WIN/LOSS), daily-stop.
+        Butuh: 1) bot dari @BotFather, 2) chat ID dari @userinfobot, 3) kirim chat pertama ke bot Anda (Start).
+      </div>
+      <div class="setup-status dim-text" id="set-status"></div>
+
+      <div class="card-title" style="margin-top:14px">MODE ALGORITMA</div>
+      <div class="journal-row">
+        <span class="dim-text">Aktif:</span>
+        <span class="chip chip-amber" id="set-mode-now">--</span>
+        <span class="dim-text">Exit:</span>
+        <span class="chip chip-amber" id="set-exit-now">--</span>
+      </div>
+      <div class="card-sub">Ganti mode & exit dari halaman TRADING (dropdown) — tersinkron ke sini.</div>
+    </div>
+  </div>
+</div><!-- /view-setting -->
+
 </div><!-- /content -->
 </div><!-- /app-shell -->
 
@@ -304,6 +343,7 @@
   <button class="bn-btn" data-view="struktur"><span class="ico">📐</span><span class="lbl">STRUKTUR</span></button>
   <button class="bn-btn" data-view="news"><span class="ico">📰</span><span class="lbl">NEWS</span></button>
   <button class="bn-btn" data-view="sim"><span class="ico">🧪</span><span class="lbl">SIM</span></button>
+  <button class="bn-btn" data-view="setting"><span class="ico">⚙️</span><span class="lbl">SET</span></button>
 </nav>
 
 <div class="footer-note"><span id="conn-status" class="dim-text">menghubungkan…</span><button class="btn-ghost sm" id="btn-theme" title="ganti tema: glassmorphism / default">THEME: GLASS</button><button class="btn-ghost sm" id="btn-reset-layout" title="kembalikan posisi semua splitter ke bawaan">RESET LAYOUT</button></div>

@@ -1,0 +1,7 @@
+{
+  "tg_token": "123:ABC",
+  "tg_chat_id": "42",
+  "tg_on": true,
+  "notify_signals": true,
+  "notify_trades": true
+}

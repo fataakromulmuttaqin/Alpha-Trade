@@ -6,5 +6,6 @@ pub mod godmode;
 pub mod indicators;
 pub mod news;
 pub mod sim;
+pub mod settings;
 pub mod snapshot;
 pub mod tg;
