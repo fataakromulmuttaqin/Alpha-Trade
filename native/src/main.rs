@@ -340,11 +340,18 @@ async fn health(State(app): State<SharedApp>) -> Response {
 
 async fn snapshot_ep(State(app): State<SharedApp>, Query(q): Query<HashMap<String, String>>) -> Response {
     let a = app.read().await;
+    let sym_name = q.get("symbol").cloned().unwrap_or_else(|| a.syms[0].name.clone());
+    let Some(st) = a.syms.iter().find(|s| s.name == sym_name) else {
+        return cors((StatusCode::NOT_FOUND,
+                     Json(json!({"error": format!("simbol '{sym_name}' tidak ada")}))))
+            .into_response();
+    };
     let sims: Vec<(String, &PaperSim)> =
         a.syms.iter().map(|s| (s.name.clone(), &s.sim)).collect();
     let inp = snapshot::SnapInputs {
-        buffers: &a.syms[0].buffers, cfg: &a.cfg, signals_log: &a.signals_log,
-        symbol: &a.syms[0].name,
+        buffers: &st.buffers, cfg: &a.cfg, signals_log: &a.signals_log,
+        symbol: &st.name, symbols: &a.syms.iter().map(|s| s.name.clone())
+            .collect::<Vec<_>>(),
         view_tf: q.get("tf").map(|s| s.as_str()).or(Some(a.entry_tf.as_str())),
         htf_tf: Some(a.cfg.htf.as_str()),
         sims: &sims, news: &a.news,

@@ -71,7 +71,8 @@ function initChart() {
 
 async function loadCandles(tf, limitOverride) {
   const limit = limitOverride || state.chartLimit || 1500;
-  const r = await fetch(api_(`/api/candles?tf=${tf}&limit=${limit}`));
+  const symQ = state.activeSymbol ? `&symbol=${state.activeSymbol}` : "";
+  const r = await fetch(api_(`/api/candles?tf=${tf}&limit=${limit}${symQ}`));
   if (!r.ok) { console.warn("candles", tf, "tidak tersedia"); return false; }
   const j = await r.json();
   state.candles = j.candles;
@@ -501,6 +502,23 @@ function renderSnapshot(snap) {
   $("chart-title").textContent = `${(snap.tf_entry || "").toUpperCase()} INSTITUTIONAL MATRIX — ${snap.symbol}`;
   $("chart-structure").textContent = st.structure;
 
+  /* pemilih simbol (multi-simbol native) */
+  const selSym = $("sel-symbol");
+  if (selSym) {
+    const list = snap.symbols || [snap.symbol];
+    if (list.length > 1) {
+      selSym.style.display = "";
+      const cur = selSym.value;
+      if (selSym.options.length !== list.length ||
+          [...selSym.options].some((o, k) => o.value !== list[k])) {
+        selSym.innerHTML = list.map(s => `<option value="${s}">${s}</option>`).join("");
+      }
+      selSym.value = state.activeSymbol || snap.symbol;
+    } else {
+      selSym.style.display = "none";
+    }
+  }
+
   /* golden / high risk */
   $("golden-price").textContent = fmt(snap.golden.price);
   $("golden-state").textContent = snap.golden.state;
@@ -767,7 +785,8 @@ function renderJournal(j) {
    incremental — cukup responsif karena data hanya berubah per candle close. */
 async function pollSnapshot() {
   try {
-    const q = state.activeTf ? `?tf=${state.activeTf}` : "";
+    const q = (state.activeTf ? `?tf=${state.activeTf}` : "")
+            + (state.activeSymbol ? `&symbol=${state.activeSymbol}` : "");
     renderSnapshot(await (await fetch(api_("/api/snapshot" + q))).json());
     if (state.activeTf) await refreshLatestCandles();
   } catch (e) { /* jaringan gotoh — coba lagi di tick berikutnya */ }
@@ -778,7 +797,8 @@ async function pollSnapshot() {
 async function refreshLatestCandles() {
   let j;
   try {
-    const r = await fetch(api_(`/api/candles?tf=${state.activeTf}&limit=5`));
+    const symQ = state.activeSymbol ? `&symbol=${state.activeSymbol}` : "";
+    const r = await fetch(api_(`/api/candles?tf=${state.activeTf}&limit=5${symQ}`));
     if (!r.ok) return;
     j = await r.json();
   } catch (e) { return; }
@@ -875,7 +895,8 @@ async function switchTf(tf) {
   const ok = await loadCandles(tf);
   if (!ok) return;
   try {
-    const snap = await (await fetch(api_(`/api/snapshot?tf=${tf}`))).json();
+    const symQ = state.activeSymbol ? `&symbol=${state.activeSymbol}` : "";
+    const snap = await (await fetch(api_(`/api/snapshot?tf=${tf}${symQ}`))).json();
     if (!snap.error) {
       renderSnapshot(snap);          // panel + overlay khusus TF ini
       return;
@@ -916,6 +937,20 @@ function bindUI() {
     if (b.classList.contains("disabled")) return;
     switchTf(b.dataset.tf);
   }));
+  // pindah simbol (multi-simbol native): muat ulang candles + snapshot
+  const selSymEl = $("sel-symbol");
+  if (selSymEl) selSymEl.addEventListener("change", async () => {
+    state.activeSymbol = selSymEl.value;
+    if (state.activeTf) {
+      await loadCandles(state.activeTf);
+      try {
+        const q = `?tf=${state.activeTf}&symbol=${state.activeSymbol}`;
+        const snap = await (await fetch(api_("/api/snapshot" + q))).json();
+        if (!snap.error) renderSnapshot(snap);
+      } catch (e) {}
+      drawOverlays();
+    }
+  });
   document.querySelectorAll(".bars-btn").forEach(b => b.addEventListener("click", () => {
     document.querySelectorAll(".bars-btn").forEach(x => x.classList.remove("on"));
     b.classList.add("on");

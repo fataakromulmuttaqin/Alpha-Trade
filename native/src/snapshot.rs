@@ -18,6 +18,7 @@ pub struct SnapInputs<'a> {
     pub cfg: &'a Config,
     pub signals_log: &'a [Value],
     pub symbol: &'a str,
+    pub symbols: &'a [String],
     pub view_tf: Option<&'a str>,
     pub htf_tf: Option<&'a str>,
     pub sims: &'a [(String, &'a PaperSim)],
@@ -139,6 +140,7 @@ pub fn build_snapshot(inp: &SnapInputs) -> Option<Value> {
 
     Some(json!({
         "symbol": inp.symbol,
+        "symbols": inp.symbols,
         "ts": crate::news::now_utc_str(),
         "tf_entry": tf_entry, "tf_htf": tf_htf,
         "engine_entry": inp.view_tf.unwrap_or(&tf_entry),
