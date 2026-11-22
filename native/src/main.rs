@@ -82,9 +82,41 @@ async fn main() {
         last_sig_time: None, news, symbol: symbol.clone(), entry_tf: entry_tf.clone(),
     }));
 
-    // seed sinyal terakhir + proses candle terakhir oleh sim
+    // ---- REPLAY riwayat: seluruh buffer entry TF diputar ulang lewat
+    // engine + PaperSim (setara sim_replay Python) -> SIM page langsung
+    // punya track record EDGE-1H saat boot, deterministik tiap restart.
     {
         let mut a = app.write().await;
+        let df = a.buffers.get(&entry_tf).cloned().unwrap_or_default();
+        let htf = a.buffers.get(&a.cfg.htf).cloned().unwrap_or_default();
+        if df.len() > 260 && htf.len() > 50 {
+            let sigs = generate_signals(&df, &a.cfg, &htf);
+            let by_time: std::collections::HashMap<i64, &engine::Signal> =
+                sigs.iter().map(|s| (s.time_ms, s)).collect();
+            let mode = a.sensitivity.clone();
+            println!("[replay] memutar {} bar {} lewat PaperSim ...", df.len(), entry_tf);
+            for c in &df {
+                if let Some(s) = by_time.get(&c.time_ms) {
+                    let kind = if s.score >= 3 { "GOLDEN" } else { "HIGH RISK" };
+                    a.sim.queue_signal(c.time_ms, s.dir, s.entry, s.sl, s.tp1, s.tp2, &mode, kind);
+                }
+                for ev in a.sim.on_candle(c) { let _ = ev; }
+            }
+            println!("[replay] selesai: {} trade, EQ {:.2}",
+                     a.sim.stats()["trades"], a.sim.equity);
+            a.last_sig_time = sigs.last().map(|s| s.time_ms);
+            // log: 5 sinyal terakhir riwayat
+            for s in sigs.iter().rev().take(5) {
+                a.signals_log.push(json!({
+                    "time": godmode::ms_to_str(s.time_ms), "tf": entry_tf,
+                    "side": if s.dir == 1 { "LONG" } else { "SHORT" },
+                    "entry": sim::r2(s.entry), "sl": sim::r2(s.sl),
+                    "tp1": sim::r2(s.tp1), "tp2": sim::r2(s.tp2),
+                    "score": s.score, "kind": if s.score >= 3 { "GOLDEN" } else { "HIGH RISK" },
+                }));
+            }
+            a.signals_log.reverse();
+        }
         handle_engine_tick(&mut a, &entry_tf);
     }
 
