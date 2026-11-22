@@ -7,3 +7,4 @@ pub mod indicators;
 pub mod news;
 pub mod sim;
 pub mod snapshot;
+pub mod tg;

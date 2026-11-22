@@ -20,7 +20,7 @@ pub struct SnapInputs<'a> {
     pub symbol: &'a str,
     pub view_tf: Option<&'a str>,
     pub htf_tf: Option<&'a str>,
-    pub sim: &'a PaperSim,
+    pub sims: &'a [(String, &'a PaperSim)],
     pub news: &'a Value,
     pub sensitivity: &'a str,
     pub exit_protocol: &'a str,
@@ -169,7 +169,7 @@ pub fn build_snapshot(inp: &SnapInputs) -> Option<Value> {
             "zones_multi": zm,
         },
         "signals_log": inp.signals_log,
-        "sim": {"stats": inp.sim.stats(), "trades": inp.sim.snapshot_list(50)},
+        "sim": {"stats": combined_stats(inp.sims), "trades": merged_trades(inp.sims, 50)},
         "news": inp.news,
         "mode": {"sensitivity": inp.sensitivity, "exit_protocol": inp.exit_protocol},
         "filters": {"golden": true, "high_risk": false,
@@ -178,3 +178,55 @@ pub fn build_snapshot(inp: &SnapInputs) -> Option<Value> {
 }
 
 fn r1v(v: f64) -> f64 { (v * 10.0).round() / 10.0 }
+
+/// Statistik gabungan multi-simbol (tiap simbol = akun 10k independen).
+pub fn combined_stats(sims: &[(String, &PaperSim)]) -> Value {
+    let mut equity = 0.0f64;
+    let mut start = 0.0f64;
+    let mut trades = 0usize;
+    let mut open = 0usize;
+    let mut wins = 0usize;
+    let mut losses = 0usize;
+    let mut gp = 0.0f64;
+    let mut gl = 0.0f64;
+    let mut dd_min = 0.0f64;
+    let mut avg_r_acc = 0.0f64;
+    for (_, s) in sims {
+        let st = s.stats();
+        equity += st["equity"].as_f64().unwrap_or(0.0);
+        start += s.start_equity;
+        trades += st["trades"].as_u64().unwrap_or(0) as usize;
+        open += st["open"].as_u64().unwrap_or(0) as usize;
+        wins += st["wins"].as_u64().unwrap_or(0) as usize;
+        losses += st["losses"].as_u64().unwrap_or(0) as usize;
+        let (g, l, _, _, cnt) = s.gp_gl();
+        gp += g;
+        gl += l;
+        let ar = st["avg_r"].as_f64().unwrap_or(0.0);
+        avg_r_acc += ar * cnt as f64;
+        dd_min = dd_min.min(st["max_dd"].as_f64().unwrap_or(0.0));
+    }
+    let wr = if trades > 0 { wins as f64 / trades as f64 * 100.0 } else { 0.0 };
+    let pf = if gl > 0.0 { gp / gl } else { f64::INFINITY };
+    let avg_r = if trades > 0 { avg_r_acc / trades as f64 } else { 0.0 };
+    let ret = (equity / start - 1.0) * 100.0;
+    json!({
+        "equity": crate::sim::r2(equity), "start": crate::sim::r2(start),
+        "trades": trades, "open": open, "wins": wins, "losses": losses,
+        "winrate": crate::sim::r1(wr), "avg_r": crate::sim::r3(avg_r),
+        "profit_factor": if pf.is_infinite() { json!("∞") } else { json!(crate::sim::r2(pf)) },
+        "max_dd": crate::sim::r2(dd_min), "return_pct": crate::sim::r2(ret),
+    })
+}
+
+/// Gabungkan daftar trade semua simbol, terbaru dulu.
+pub fn merged_trades(sims: &[(String, &PaperSim)], n: usize) -> Value {
+    let mut all: Vec<Value> = vec![];
+    for (_, s) in sims {
+        if let Some(arr) = s.snapshot_list(n).as_array() {
+            all.extend(arr.clone());
+        }
+    }
+    all.sort_by(|a, b| b["time"].as_str().cmp(&a["time"].as_str()));
+    json!(all.into_iter().take(n).collect::<Vec<_>>())
+}

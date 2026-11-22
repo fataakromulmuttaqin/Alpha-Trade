@@ -15,7 +15,7 @@ from .smc_structure import structure_confirms
 def backtest(df, signals, cost=0.0, risk_pct=1.0, equity0=10_000.0,
              tp1_frac=0.5, max_hold=200,
              daily_stop_r=0.0, daily_max_trades=0,
-             trail_start_r=0.0, trail_atr=0.0):
+             trail_start_r=0.0, trail_atr=0.0, risk_scale=None):
     """daily_stop_r      : berhenti entry sisa hari itu setelah rugi kumulatif
                            mencapai -X R (R diakui saat trade close, dihitung
                            pada hari ENTRY-nya). 0 = mati.
@@ -46,6 +46,13 @@ def backtest(df, signals, cost=0.0, risk_pct=1.0, equity0=10_000.0,
         risk = abs(s["entry"] - sl)
         if risk <= 0:
             continue
+        # vol-targeted sizing: skala risiko per trade (opsional)
+        eff_risk = risk_pct
+        if risk_scale is not None:
+            try:
+                eff_risk = risk_pct * float(risk_scale.loc[t])
+            except (KeyError, ValueError, TypeError):
+                eff_risk = risk_pct
         # geser level mengikuti harga entry riil
         shift = entry - s["entry"]
         sl, tp1, tp2 = sl + shift, tp1 + shift, tp2 + shift
@@ -96,7 +103,7 @@ def backtest(df, signals, cost=0.0, risk_pct=1.0, equity0=10_000.0,
             r_total += (1 - tp1_frac if hit1 else 1.0) * d * (last - entry) / risk
 
         r_total -= cost / risk
-        equity *= 1 + risk_pct / 100 * r_total
+        equity *= 1 + eff_risk / 100 * r_total
         day_r += r_total
         day_count += 1
         busy_until = exit_i

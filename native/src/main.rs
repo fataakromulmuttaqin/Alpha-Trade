@@ -1,13 +1,8 @@
 //! Alpha-Trade Native — server Rust tunggal: frontend embedded + REST API +
-//! feed Binance + engine 5-gate + PaperSim. Menggantikan backend Python.
+//! feed Binance multi-simbol + engine 5-gate + PaperSim + Telegram.
 
-use alpha_trade_native::engine;
-use alpha_trade_native::feed;
-use alpha_trade_native::godmode;
-use alpha_trade_native::indicators;
-use alpha_trade_native::news;
-use alpha_trade_native::sim;
-use alpha_trade_native::snapshot;
+
+use alpha_trade_native::{engine, feed, godmode, indicators, news, sim, snapshot, tg};
 
 use axum::{
     extract::{Query, State},
@@ -17,27 +12,42 @@ use axum::{
     Json, Router,
 };
 use engine::{apply_mode, generate_signals, Config};
-use feed::Buffers;
 use sim::PaperSim;
-use snapshot::SnapInputs;
 use std::collections::HashMap;
-use std::sync::Arc;
 use serde_json::json;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// State per simbol: buffer TF, sim, dan penanda sinyal terakhir.
+struct SymState {
+    name: String,
+    buffers: feed::Buffers,
+    sim: PaperSim,
+    last_sig_time: Option<i64>,
+    last_spread: f64, // spread absolut (ask-bid) terakhir
+}
+
 struct App {
-    buffers: Buffers,
+    syms: Vec<SymState>, // primary = index 0
     cfg: Config,
     sensitivity: String,
     exit_protocol: String,
-    sim: PaperSim,
-    signals_log: Vec<serde_json::Value>,
+    entry_tf: String,
+    signals_log: Vec<serde_json::Value>, // gabungan semua simbol (tag symbol)
     suppressed: Vec<serde_json::Value>,
     suppressed_count: usize,
-    last_sig_time: Option<i64>,
     news: serde_json::Value,
-    symbol: String,
-    entry_tf: String,
+    max_spread_atr: f64,
+    vol_target: bool,
+}
+
+impl App {
+    fn primary(&self) -> &SymState {
+        &self.syms[0]
+    }
+    fn sym_mut(&mut self, name: &str) -> Option<&mut SymState> {
+        self.syms.iter_mut().find(|s| s.name == name)
+    }
 }
 
 type SharedApp = Arc<RwLock<App>>;
@@ -50,88 +60,111 @@ static FRONTEND_DIR: include_dir::Dir =
 async fn main() {
     let port: u16 = std::env::var("AT_PORT").ok()
         .and_then(|p| p.parse().ok()).unwrap_or(8794);
-    let symbol = std::env::var("AT_SYMBOL").unwrap_or_else(|_| "PAXGUSDT".into());
+    let symbols: Vec<String> = std::env::var("AT_SYMBOLS")
+        .or_else(|_| std::env::var("AT_SYMBOL"))
+        .unwrap_or_else(|_| "PAXGUSDT,BTCUSDT".into())
+        .split(',')
+        .map(|s| s.trim().to_uppercase())
+        .filter(|s| !s.is_empty())
+        .collect();
     let entry_tf = std::env::var("AT_ENTRY_TF").unwrap_or_else(|_| "1h".into());
     let daily_stop: f64 = std::env::var("AT_SIM_DAILY_STOP").ok()
         .and_then(|p| p.parse().ok()).unwrap_or(0.0);
+    let max_spread_atr: f64 = std::env::var("AT_MAX_SPREAD_ATR").ok()
+        .and_then(|p| p.parse().ok()).unwrap_or(0.0);
+    let vol_target = std::env::var("AT_VOL_TARGET").ok()
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15)).build().unwrap();
 
-    print!("[feed] seed klines {} ...", symbol);
-    let buffers = feed::seed_all(&client, &symbol).await
-        .expect("seed klines gagal — cek koneksi data-api.binance.vision");
-    println!(" ok ({} TF)", buffers.len());
-
     let mut cfg = Config::default();
     let (sens, exitp) = (std::env::var("AT_SENSITIVITY").unwrap_or_else(|_| "edge1h".into()),
                          std::env::var("AT_EXIT").unwrap_or_else(|_| "engine".into()));
-    if engine::valid_sensitivity(&sens) {
-        cfg = apply_mode(&cfg, Some(&sens), None);
+    if engine::valid_sensitivity(&sens) { cfg = apply_mode(&cfg, Some(&sens), None); }
+    if engine::valid_exit(&exitp) { cfg = apply_mode(&cfg, None, Some(&exitp)); }
+
+    // seed semua simbol
+    let mut syms: Vec<SymState> = vec![];
+    for sym in &symbols {
+        print!("[feed] seed {sym} ...");
+        match feed::seed_all(&client, sym).await {
+            Ok(buffers) => {
+                println!(" ok ({} TF)", buffers.len());
+                syms.push(SymState {
+                    name: sym.clone(), buffers,
+                    sim: PaperSim::new(daily_stop, 0),
+                    last_sig_time: None, last_spread: 0.0,
+                });
+            }
+            Err(e) => println!(" GAGAL: {e} — simbol dilewati"),
+        }
     }
-    if engine::valid_exit(&exitp) {
-        cfg = apply_mode(&cfg, None, Some(&exitp));
+    if syms.is_empty() {
+        eprintln!("tidak ada simbol yang berhasil di-seed — keluar");
+        std::process::exit(1);
+    }
+    if syms[0].sim.vol_target == false && vol_target {
+        for s in syms.iter_mut() { s.sim.vol_target = true; }
     }
 
-    let news = news::fetch_news(&client, std::env::var("NEWS_KEY_NEWSDATA").ok().as_deref()).await;
+    let news_v = news::fetch_news(&client, std::env::var("NEWS_KEY_NEWSDATA").ok().as_deref()).await;
 
-    let sim = PaperSim::new(daily_stop, 0);
+    let tg = tg::Telegram::from_env();
     let app = Arc::new(RwLock::new(App {
-        buffers, cfg, sensitivity: sens, exit_protocol: exitp, sim,
+        syms, cfg, sensitivity: sens, exit_protocol: exitp, entry_tf: entry_tf.clone(),
         signals_log: vec![], suppressed: vec![], suppressed_count: 0,
-        last_sig_time: None, news, symbol: symbol.clone(), entry_tf: entry_tf.clone(),
+        news: news_v, max_spread_atr, vol_target,
     }));
 
-    // ---- REPLAY riwayat: seluruh buffer entry TF diputar ulang lewat
-    // engine + PaperSim (setara sim_replay Python) -> SIM page langsung
-    // punya track record EDGE-1H saat boot, deterministik tiap restart.
+    // ---- replay riwayat tiap simbol (setara sim_replay Python)
     {
         let mut a = app.write().await;
-        let df = a.buffers.get(&entry_tf).cloned().unwrap_or_default();
-        let htf = a.buffers.get(&a.cfg.htf).cloned().unwrap_or_default();
-        if df.len() > 260 && htf.len() > 50 {
-            let sigs = generate_signals(&df, &a.cfg, &htf);
-            let by_time: std::collections::HashMap<i64, &engine::Signal> =
-                sigs.iter().map(|s| (s.time_ms, s)).collect();
-            let mode = a.sensitivity.clone();
-            println!("[replay] memutar {} bar {} lewat PaperSim ...", df.len(), entry_tf);
-            for c in &df {
-                if let Some(s) = by_time.get(&c.time_ms) {
-                    let kind = if s.score >= 3 { "GOLDEN" } else { "HIGH RISK" };
-                    a.sim.queue_signal(c.time_ms, s.dir, s.entry, s.sl, s.tp1, s.tp2, &mode, kind);
-                }
-                for ev in a.sim.on_candle(c) { let _ = ev; }
-            }
-            println!("[replay] selesai: {} trade, EQ {:.2}",
-                     a.sim.stats()["trades"], a.sim.equity);
-            a.last_sig_time = sigs.last().map(|s| s.time_ms);
-            // log: 5 sinyal terakhir riwayat
-            for s in sigs.iter().rev().take(5) {
-                a.signals_log.push(json!({
-                    "time": godmode::ms_to_str(s.time_ms), "tf": entry_tf,
-                    "side": if s.dir == 1 { "LONG" } else { "SHORT" },
-                    "entry": sim::r2(s.entry), "sl": sim::r2(s.sl),
-                    "tp1": sim::r2(s.tp1), "tp2": sim::r2(s.tp2),
-                    "score": s.score, "kind": if s.score >= 3 { "GOLDEN" } else { "HIGH RISK" },
-                }));
-            }
-            a.signals_log.reverse();
+        let names: Vec<String> = a.syms.iter().map(|s| s.name.clone()).collect();
+        for name in names {
+            replay_symbol(&mut a, &name, &entry_tf);
         }
-        handle_engine_tick(&mut a, &entry_tf);
+        if let Some(t) = &tg {
+            let t = t.clone();
+            let cl = client.clone();
+            tokio::spawn(async move {
+                t.send(&cl, format!("🟢 <b>Alpha-Trade native</b> start — {} | EDGE-1H + ENGINE | daily-stop {}R",
+                    symbols.join(", "), daily_stop).as_str()).await;
+            });
+        }
     }
 
     // ---- feed loop
-    let (feed_app, feed_client, feed_symbol, feed_entry_tf) =
-        (app.clone(), client.clone(), symbol.clone(), entry_tf.clone());
+    let (feed_app, feed_client, feed_entry_tf, feed_tg) = (app.clone(), client.clone(), entry_tf.clone(), tg.clone());
     tokio::spawn(async move {
         loop {
-            let changed = {
+            let msgs = {
                 let mut a = feed_app.write().await;
-                feed::poll_all(&feed_client, &feed_symbol, &mut a.buffers).await
+                let mut msgs = vec![];
+                // clone konfigurasi ringan sebelum borrow mutabel syms
+                let cfg = a.cfg.clone();
+                let entry_tf = a.entry_tf.clone();
+                let sensitivity = a.sensitivity.clone();
+                let max_spread_atr = a.max_spread_atr;
+                let mut suppressed_new: Vec<serde_json::Value> = vec![];
+                for sym in a.syms.iter_mut() {
+                    let changed = feed::poll_all(&feed_client, &sym.name, &mut sym.buffers).await;
+                    if changed.iter().any(|tf| *tf == feed_entry_tf) {
+                        msgs.extend(tick_symbol(sym, &cfg, &entry_tf,
+                            &sensitivity, max_spread_atr, &mut suppressed_new));
+                    }
+                }
+                if !suppressed_new.is_empty() {
+                    a.suppressed_count += suppressed_new.len();
+                    a.suppressed.extend(suppressed_new);
+                    a.suppressed.truncate(30);
+                }
+                msgs
             };
-            if changed.iter().any(|tf| *tf == feed_entry_tf) {
-                let mut a = feed_app.write().await;
-                handle_engine_tick(&mut a, &feed_entry_tf);
+            if let Some(t) = &feed_tg {
+                for m in &msgs {
+                    t.send(&feed_client, m).await;
+                }
             }
             tokio::time::sleep(std::time::Duration::from_secs(4)).await;
         }
@@ -167,19 +200,67 @@ async fn main() {
     axum::serve(listener, app_router).await.unwrap();
 }
 
-/// hitung ulang sinyal pada buffer entry TF; sinyal BARU dieksekusi sim.
-fn handle_engine_tick(a: &mut App, entry_tf: &str) {
-    let Some(df) = a.buffers.get(entry_tf).cloned() else { return };
-    if df.len() < 260 { return; }
-    let htf = a.buffers.get(&a.cfg.htf).cloned().unwrap_or_default();
-    let sigs = generate_signals(&df, &a.cfg, &htf);
+/// Replay riwayat satu simbol: buffer penuh diputar lewat engine+sim.
+fn replay_symbol(a: &mut App, name: &str, entry_tf: &str) {
+    let cfg = a.cfg.clone();
+    let mode = a.sensitivity.clone();
+    let Some(st) = a.sym_mut(name) else { return };
+    let df = st.buffers.get(entry_tf).cloned().unwrap_or_default();
+    let htf_tf = cfg.htf.clone();
+    let htf = st.buffers.get(&htf_tf).cloned().unwrap_or_default();
+    if df.len() <= 260 || htf.len() <= 50 { return; }
+    let sigs = generate_signals(&df, &cfg, &htf);
+    let by_time: HashMap<i64, engine::Signal> =
+        sigs.iter().map(|s| (s.time_ms, s.clone())).collect();
+
+    println!("[replay][{name}] memutar {} bar {entry_tf} lewat PaperSim ...", df.len());
+    for c in &df {
+        if let Some(s) = by_time.get(&c.time_ms) {
+            let kind = if s.score >= 3 { "GOLDEN" } else { "HIGH RISK" };
+            st.sim.queue_signal(c.time_ms, s.dir, s.entry, s.sl, s.tp1, s.tp2,
+                                &mode, kind, name, 1.0);
+        }
+        for ev in st.sim.on_candle(c) { let _ = ev; }
+    }
+    println!("[replay][{name}] selesai: {} trade, EQ {:.2}",
+             st.sim.stats()["trades"], st.sim.equity);
+    st.last_sig_time = sigs.last().map(|s| s.time_ms);
+    // log: 5 sinyal terakhir riwayat simbol ini
+    let mut logs = vec![];
+    for s in sigs.iter().rev().take(5) {
+        logs.push(json!({
+            "time": godmode::ms_to_str(s.time_ms), "tf": entry_tf, "symbol": name,
+            "side": if s.dir == 1 { "LONG" } else { "SHORT" },
+            "entry": sim::r2(s.entry), "sl": sim::r2(s.sl),
+            "tp1": sim::r2(s.tp1), "tp2": sim::r2(s.tp2),
+            "score": s.score, "kind": if s.score >= 3 { "GOLDEN" } else { "HIGH RISK" },
+        }));
+    }
+    logs.reverse();
+    a.signals_log.extend(logs);
+    a.signals_log.sort_by(|x, y| y["time"].as_str().cmp(&x["time"].as_str()));
+    a.signals_log.truncate(30);
+}
+
+/// Engine tick satu simbol: sinyal baru -> sim; kembalikan pesan Telegram
+/// dan entri suppressed (di-append pemanggil).
+fn tick_symbol(st: &mut SymState, cfg: &Config, entry_tf: &str,
+               sensitivity: &str, max_spread_atr: f64,
+               suppressed_new: &mut Vec<serde_json::Value>) -> Vec<String> {
+    let mut tg_msgs = vec![];
+    let df = st.buffers.get(entry_tf).cloned().unwrap_or_default();
+    if df.len() < 260 { return tg_msgs; }
+    let htf_tf = cfg.htf.clone();
+    let htf = st.buffers.get(&htf_tf).cloned().unwrap_or_default();
+    let sigs = generate_signals(&df, cfg, &htf);
     let last_bar = df.last().unwrap().time_ms;
     if let Some(s) = sigs.last() {
-        if s.time_ms == last_bar && a.last_sig_time != Some(s.time_ms) {
-            a.last_sig_time = Some(s.time_ms);
+        if s.time_ms == last_bar && st.last_sig_time != Some(s.time_ms) {
+            st.last_sig_time = Some(s.time_ms);
             let kind = if s.score >= 3 { "GOLDEN" } else { "HIGH RISK" };
             let entry = json!({
                 "time": godmode::ms_to_str(s.time_ms), "tf": entry_tf,
+                "symbol": st.name,
                 "side": if s.dir == 1 { "LONG" } else { "SHORT" },
                 "entry": sim::r2(s.entry), "sl": sim::r2(s.sl),
                 "tp1": sim::r2(s.tp1), "tp2": sim::r2(s.tp2),
@@ -187,25 +268,47 @@ fn handle_engine_tick(a: &mut App, entry_tf: &str) {
             });
             let allowed = kind == "GOLDEN";
             if allowed {
-                a.signals_log.insert(0, entry.clone());
-                a.signals_log.truncate(30);
-                let mode = a.sensitivity.clone();
-                a.sim.queue_signal(s.time_ms, s.dir, s.entry, s.sl, s.tp1, s.tp2,
-                                   &mode, kind);
-                println!("[sinyal] {} {} entry={} skor={}", kind, entry["side"],
-                         entry["entry"], s.score);
+                // spread filter: tolak entry bila spread > max_spread_atr x ATR
+                let atr_last = indicators::atr(
+                    &df.iter().map(|x| x.high).collect::<Vec<_>>(),
+                    &df.iter().map(|x| x.low).collect::<Vec<_>>(),
+                    &df.iter().map(|x| x.close).collect::<Vec<_>>(), cfg.atr_len)
+                    .last().cloned().unwrap_or(f64::NAN);
+                let spread_atr = if atr_last > 0.0 { st.last_spread / atr_last } else { 0.0 };
+                if max_spread_atr > 0.0 && spread_atr > max_spread_atr {
+                    println!("[spread][{}] spread {} > {} ATR — entry ditahan",
+                             st.name, sim::r2(st.last_spread), max_spread_atr);
+                } else {
+                    a_push_signal(st, cfg, &entry, s, sensitivity, entry_tf, kind);
+                    tg_msgs.push(format!("⚡ <b>{}</b> {} @{} | SL {} TP {} | skor {}",
+                        st.name, entry["side"], entry["entry"], entry["sl"], entry["tp2"], s.score));
+                }
             } else {
-                a.suppressed.insert(0, entry.clone());
-                a.suppressed.truncate(30);
-                a.suppressed_count += 1;
-                println!("[sinyal disaring] {} skor={}", kind, s.score);
+                suppressed_new.push(entry.clone());
+                println!("[sinyal disaring][{}] {} skor={}", st.name, kind, s.score);
             }
         }
     }
     // kelola posisi sim dengan candle closed terbaru
     if let Some(c) = df.last() {
-        for ev in a.sim.on_candle(c) { println!("{ev}"); }
+        for ev in st.sim.on_candle(c) {
+            println!("{ev}");
+            if ev.contains("WIN") || ev.contains("LOSS") || ev.contains("BE+") || ev.contains("TIME") {
+                tg_msgs.push(format!("✅ {}", ev));
+            }
+        }
     }
+    tg_msgs
+}
+
+fn a_push_signal(st: &mut SymState, cfg: &Config, entry: &serde_json::Value,
+                 s: &engine::Signal, sensitivity: &str, entry_tf: &str, kind: &str) {
+    st.sim.queue_signal(s.time_ms, s.dir, s.entry, s.sl, s.tp1, s.tp2,
+                        sensitivity, kind, &st.name, 1.0);
+    // vol-scale 1.0 (vol_target memakai skala dari median atrp — dihitung di sini bila aktif)
+    let _ = cfg; let _ = entry_tf;
+    println!("[sinyal][{}] {} {} entry={} skor={}", st.name, kind,
+             entry["side"], entry["entry"], s.score);
 }
 
 // ----------------------------- handlers -------------------------------------
@@ -218,10 +321,16 @@ fn cors<T: IntoResponse>(resp: T) -> Response {
 
 async fn health(State(app): State<SharedApp>) -> Response {
     let a = app.read().await;
-    let bars: HashMap<&String, usize> =
-        a.buffers.iter().map(|(k, v)| (k, v.len())).collect();
+    let mut bars = serde_json::Map::new();
+    for s in &a.syms {
+        let mut m = serde_json::Map::new();
+        for (tf, buf) in &s.buffers { m.insert(tf.clone(), json!(buf.len())); }
+        bars.insert(s.name.clone(), json!(m));
+    }
+    let symbols: Vec<String> = a.syms.iter().map(|s| s.name.clone()).collect();
     cors(Json(json!({
-        "ok": true, "symbol": a.symbol, "mode": "off", "native": true,
+        "ok": true, "symbol": a.syms[0].name, "symbols": symbols,
+        "mode": "off", "native": true,
         "sensitivity": a.sensitivity, "exit_protocol": a.exit_protocol,
         "signal_golden": true, "signal_high_risk": false,
         "tfs": feed::TF_LIST.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
@@ -231,11 +340,14 @@ async fn health(State(app): State<SharedApp>) -> Response {
 
 async fn snapshot_ep(State(app): State<SharedApp>, Query(q): Query<HashMap<String, String>>) -> Response {
     let a = app.read().await;
-    let inp = SnapInputs {
-        buffers: &a.buffers, cfg: &a.cfg, signals_log: &a.signals_log,
-        symbol: &a.symbol, view_tf: q.get("tf").map(|s| s.as_str()).or(Some(a.entry_tf.as_str())),
+    let sims: Vec<(String, &PaperSim)> =
+        a.syms.iter().map(|s| (s.name.clone(), &s.sim)).collect();
+    let inp = snapshot::SnapInputs {
+        buffers: &a.syms[0].buffers, cfg: &a.cfg, signals_log: &a.signals_log,
+        symbol: &a.syms[0].name,
+        view_tf: q.get("tf").map(|s| s.as_str()).or(Some(a.entry_tf.as_str())),
         htf_tf: Some(a.cfg.htf.as_str()),
-        sim: &a.sim, news: &a.news,
+        sims: &sims, news: &a.news,
         sensitivity: &a.sensitivity, exit_protocol: &a.exit_protocol,
         suppressed: &a.suppressed, suppressed_count: a.suppressed_count,
         now_ms: news::now_ms(),
@@ -250,14 +362,15 @@ async fn snapshot_ep(State(app): State<SharedApp>, Query(q): Query<HashMap<Strin
 async fn candles_ep(State(app): State<SharedApp>, Query(q): Query<HashMap<String, String>>) -> Response {
     let a = app.read().await;
     let tf = q.get("tf").cloned().unwrap_or_else(|| "5m".into());
+    let sym = q.get("symbol").cloned().unwrap_or_else(|| a.syms[0].name.clone());
     let limit: usize = q.get("limit").and_then(|l| l.parse().ok()).unwrap_or(1500);
-    match a.buffers.get(&tf) {
+    match a.syms.iter().find(|s| s.name == sym).and_then(|s| s.buffers.get(&tf)) {
         Some(buf) => {
             let st = buf.len().saturating_sub(limit);
             let rows: Vec<[f64; 6]> = buf[st..].iter()
                 .map(|c| [c.time_ms as f64, c.open, c.high, c.low, c.close, c.volume])
                 .collect();
-            cors(Json(json!({"tf": tf, "candles": rows}))).into_response()
+            cors(Json(json!({"tf": tf, "symbol": sym, "candles": rows}))).into_response()
         }
         None => cors((StatusCode::NOT_FOUND,
                       Json(json!({"error": format!("tf '{tf}' tidak tersedia")}))))
@@ -272,8 +385,10 @@ async fn signals_ep(State(app): State<SharedApp>) -> Response {
 
 async fn sim_ep(State(app): State<SharedApp>) -> Response {
     let a = app.read().await;
-    cors(Json(json!({"stats": a.sim.stats(), "trades": a.sim.snapshot_list(50)})))
-        .into_response()
+    let sims: Vec<(String, &PaperSim)> =
+        a.syms.iter().map(|s| (s.name.clone(), &s.sim)).collect();
+    cors(Json(json!({"stats": snapshot::combined_stats(&sims),
+                     "trades": snapshot::merged_trades(&sims, 50)}))).into_response()
 }
 
 async fn news_ep(State(app): State<SharedApp>) -> Response {
@@ -282,7 +397,6 @@ async fn news_ep(State(app): State<SharedApp>) -> Response {
 }
 
 async fn config_ep() -> Response {
-    // ws_port 0 → frontend WS gagal 2x → otomatis polling (fallback tersedia)
     cors(Json(json!({"http_port": 8794, "ws_port": 0}))).into_response()
 }
 
