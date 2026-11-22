@@ -410,3 +410,16 @@ body.resizing .hsplit { cursor: row-resize; }
 .sim-block.win { border-color: rgba(22,199,132,.45); }
 .sim-block.loss { border-color: rgba(234,57,67,.45); }
 .sim-block.open { border-color: rgba(217,182,74,.5); }
+
+/* ---------- panel riwayat sim: tinggi terkunci, scroll di dalam panel ---------- */
+.sim-scroll {
+  max-height: calc(100vh - 340px);
+  min-height: 340px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.sim-scroll::-webkit-scrollbar { width: 8px; }
+.sim-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.sim-scroll::-webkit-scrollbar-thumb:hover { background: #2a3240; }
+/* dashboard: kartu sim ringkas juga panel scroll (detail sama) */
+#sim-list.sim-scroll { max-height: 420px; min-height: 200px; }

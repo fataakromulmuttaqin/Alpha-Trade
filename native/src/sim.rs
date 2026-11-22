@@ -192,12 +192,17 @@ impl PaperSim {
             if dd < max_dd { max_dd = dd; }
         }
         let ret = (self.equity / self.start_equity - 1.0) * 100.0;
+        // nominal $ per hasil (utk review untung/rugi)
+        let pl_win: f64 = closed.iter().filter(|t| t.r > 0.0).map(|t| t.pl_usd).sum();
+        let pl_loss: f64 = closed.iter().filter(|t| t.r <= 0.0).map(|t| t.pl_usd).sum();
         json!({
             "equity": r2(self.equity), "trades": closed.len(), "open": open,
             "wins": wins, "losses": losses, "winrate": r1(wr),
             "avg_r": r3(avg_r),
             "profit_factor": if pf.is_infinite() { json!("∞") } else { json!(r2(pf)) },
             "max_dd": r2(max_dd), "return_pct": r2(ret),
+            "pl_win_usd": r2(pl_win), "pl_loss_usd": r2(pl_loss),
+            "net_usd": r2(self.equity - self.start_equity),
         })
     }
 

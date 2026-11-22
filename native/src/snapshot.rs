@@ -193,6 +193,8 @@ pub fn combined_stats(sims: &[(String, &PaperSim)]) -> Value {
     let mut gl = 0.0f64;
     let mut dd_min = 0.0f64;
     let mut avg_r_acc = 0.0f64;
+    let mut pl_win = 0.0f64;
+    let mut pl_loss = 0.0f64;
     for (_, s) in sims {
         let st = s.stats();
         equity += st["equity"].as_f64().unwrap_or(0.0);
@@ -207,6 +209,8 @@ pub fn combined_stats(sims: &[(String, &PaperSim)]) -> Value {
         let ar = st["avg_r"].as_f64().unwrap_or(0.0);
         avg_r_acc += ar * cnt as f64;
         dd_min = dd_min.min(st["max_dd"].as_f64().unwrap_or(0.0));
+        pl_win += st["pl_win_usd"].as_f64().unwrap_or(0.0);
+        pl_loss += st["pl_loss_usd"].as_f64().unwrap_or(0.0);
     }
     let wr = if trades > 0 { wins as f64 / trades as f64 * 100.0 } else { 0.0 };
     let pf = if gl > 0.0 { gp / gl } else { f64::INFINITY };
@@ -218,6 +222,8 @@ pub fn combined_stats(sims: &[(String, &PaperSim)]) -> Value {
         "winrate": crate::sim::r1(wr), "avg_r": crate::sim::r3(avg_r),
         "profit_factor": if pf.is_infinite() { json!("∞") } else { json!(crate::sim::r2(pf)) },
         "max_dd": crate::sim::r2(dd_min), "return_pct": crate::sim::r2(ret),
+        "pl_win_usd": crate::sim::r2(pl_win), "pl_loss_usd": crate::sim::r2(pl_loss),
+        "net_usd": crate::sim::r2(equity - start),
     })
 }
 

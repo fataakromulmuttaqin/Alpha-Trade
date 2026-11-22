@@ -258,7 +258,22 @@
 
 <!-- ================= VIEW: SIMULASI ================= -->
 <div class="view hidden" id="view-sim">
-  <div class="page-grid">
+  <div class="page-grid page-single">
+    <div class="card sim-card">
+      <div class="card-head">
+        <div class="card-title">RIWAYAT SIMULASI — DETAIL REVIEW <span class="info">ⓘ otomatis dari sinyal</span></div>
+        <span class="chip chip-dim" id="sim-equity">--</span>
+      </div>
+      <div class="sim-stats" id="sim-stats"></div>
+      <div class="zone-controls" style="margin:4px 0 8px; flex-wrap:wrap">
+        <button class="chip bars-btn on" data-sfilter="ALL">SEMUA</button>
+        <button class="chip bars-btn" data-sfilter="WIN">WIN</button>
+        <button class="chip bars-btn" data-sfilter="LOSS">LOSS</button>
+        <button class="chip bars-btn" data-sfilter="OPEN">OPEN</button>
+      </div>
+      <div id="sim-detail" class="sim-scroll sim-detail"></div>
+    </div>
+
     <div class="card setup-card">
       <div class="card-title" id="setup-title">TRADE SETUP</div>
       <div class="setup-label" id="su-label"></div>
@@ -270,25 +285,6 @@
         <div class="setup-cell"><div class="zone-cap" id="su-tp2-cap">TP 2</div><div class="setup-val green-text" id="su-tp2">--</div></div>
       </div>
       <div class="rr-box"><div class="zone-cap">RISK / REWARD</div><div class="rr-val gold-text" id="su-rr">--</div></div>
-    </div>
-
-    <div class="card sim-card">
-      <div class="card-head">
-        <div class="card-title">RIWAYAT SIMULASI — DETAIL REVIEW</div>
-        <div class="zone-controls">
-          <button class="chip bars-btn on" data-sfilter="ALL">SEMUA</button>
-          <button class="chip bars-btn" data-sfilter="WIN">WIN</button>
-          <button class="chip bars-btn" data-sfilter="LOSS">LOSS</button>
-          <button class="chip bars-btn" data-sfilter="OPEN">OPEN</button>
-        </div>
-      </div>
-      <div id="sim-detail" class="sim-detail"></div>
-    </div>
-
-    <div class="card sim-card">
-      <div class="card-head"><div class="card-title">SIMULASI RINGKAS <span class="info">ⓘ otomatis dari sinyal</span></div><span class="chip chip-dim" id="sim-equity">--</span></div>
-      <div class="sim-stats" id="sim-stats"></div>
-      <div id="sim-list" class="sim-list"></div>
     </div>
 
     <div class="card journal-card">

@@ -675,22 +675,20 @@ function renderSnapshot(snap) {
     $("sim-equity").textContent = `EQ $${fmt(s.equity)} (${s.return_pct >= 0 ? "+" : ""}${s.return_pct}%)`;
     $("sim-equity").className = "chip " + (s.return_pct >= 0 ? "chip-green" : "chip-red");
     const cell = (k, v, cls = "") => `<div class="sim-stat"><div class="v ${cls}">${v}</div><div class="k">${k}</div></div>`;
+    const usd = (v) => `${v >= 0 ? "+" : "-"}$${fmt(Math.abs(v), 2)}`;
     $("sim-stats").innerHTML =
       cell("TRADE", `${s.trades}<small style="color:var(--dim)">+${s.open} open</small>`) +
       cell("WINRATE", `${s.winrate}%`, s.winrate >= 50 ? "green-text" : "red-text") +
       cell("PROFIT F", s.profit_factor === null ? "--" : s.profit_factor) +
-      cell("AVG R", (s.avg_r >= 0 ? "+" : "") + s.avg_r, s.avg_r >= 0 ? "green-text" : "red-text");
+      cell("AVG R", (s.avg_r >= 0 ? "+" : "") + s.avg_r, s.avg_r >= 0 ? "green-text" : "red-text") +
+      cell("WIN", `${s.wins} · ${usd(s.pl_win_usd ?? 0)}`, "green-text") +
+      cell("LOSS", `${s.losses} · ${usd(s.pl_loss_usd ?? 0)}`, "red-text") +
+      cell("NET", usd(s.net_usd ?? (s.equity - 10000)), s.net_usd >= 0 ? "green-text" : "red-text");
     const stCls = (t) => t === "WIN" ? "WIN" : t === "LOSS" ? "LOSS" : t === "OPEN" ? "OPEN" : "TIME";
-    // detail review: kartu penuh per trade (semua data) — dipakai di halaman SIM
+    // detail review: kartu penuh per trade (semua data, sama di kedua tempat)
     renderSimDetail(sim.trades || []);
-    $("sim-list").innerHTML = (sim.trades || []).slice(0, 8).map(t => `
-      <div class="sim-row">
-        <span class="dim-text">${String(t.time).slice(5, 16).replace("T", " ")}</span>
-        <span class="side ${t.side === "LONG" ? "long" : "short"}">${t.side === "LONG" ? "LONG" : "SHORT"}</span>
-        <span class="dim-text">${fmt(t.entry)} → ${t.exit_price ? fmt(t.exit_price) : "…"}</span>
-        <span class="r ${t.r >= 0 ? "pos" : "neg"}">${t.r >= 0 ? "+" : ""}${fmt(t.r, 2)}R</span>
-        <span class="st ${stCls(t.status)}">${t.status}${t.kind === "GOLDEN" ? " ★" : ""}</span>
-      </div>`).join("") || `<div class="dim-text">— belum ada trade; menunggu sinyal lolos filter</div>`;
+    $("sim-list").innerHTML = $("sim-detail").innerHTML;
+    $("sim-list").classList.add("sim-scroll");
   }
 
 /* ---------- kartu detail review per trade (halaman SIMULASI) ---------- */
