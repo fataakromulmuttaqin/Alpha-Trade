@@ -685,10 +685,9 @@ function renderSnapshot(snap) {
       cell("LOSS", `${s.losses} · ${usd(s.pl_loss_usd ?? 0)}`, "red-text") +
       cell("NET", usd(s.net_usd ?? (s.equity - 10000)), s.net_usd >= 0 ? "green-text" : "red-text");
     const stCls = (t) => t === "WIN" ? "WIN" : t === "LOSS" ? "LOSS" : t === "OPEN" ? "OPEN" : "TIME";
-    // detail review: kartu penuh per trade (semua data, sama di kedua tempat)
+    const _ = stCls; // (dipakai renderer detail)
+    // detail review: kartu penuh per trade — dirender ke #sim-detail (halaman SIM)
     renderSimDetail(sim.trades || []);
-    $("sim-list").innerHTML = $("sim-detail").innerHTML;
-    $("sim-list").classList.add("sim-scroll");
   }
 
 /* ---------- kartu detail review per trade (halaman SIMULASI) ---------- */
@@ -1358,7 +1357,10 @@ async function loadInitialData() {
         _bootDataDone = true;
         return;
       }
-    } catch (e) { /* server belum hidup */ }
+    } catch (e) {
+      // simpan penyebabnya (diagnosa) — jangan diam-diam
+      window.__loadErr = (e && e.message) ? e.message : String(e);
+    }
     await new Promise(r => setTimeout(r, 1500));
   }
 }
