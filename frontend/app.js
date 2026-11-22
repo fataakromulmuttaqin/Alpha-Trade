@@ -289,42 +289,65 @@ function drawCanvas() {
 
   /* visualisasi trade simulasi (toggle RR): band hijau ke TP2, merah ke SL,
      label "TP 2 ($x) | RR 1:y" — seperti strategy overlay GODMODE */
-  if (state.toggles.RR && snap.sim && snap.sim.trades) {
-    const simT = snap.sim.trades.filter(t => t.status === "OPEN" || t.exit_time).slice(0, 3);
-    simT.forEach(tr => {
-      const yE = y(tr.entry), yS = y(tr.sl), yT2 = y(tr.tp2);
-      if (yE === null || yS === null || yT2 === null) return;
+  /* OVERLAY REVIEW: trade aktif (SL/Entry/TP1-3) + jejak history, per simbol chart */
+  if (state.toggles.REVIEW !== false && snap.sim && snap.sim.trades) {
+    const symNow = state.activeSymbol || snap.symbol || "";
+    const all = snap.sim.trades.filter(t => (t.symbol || "") === symNow);
+    const opens = all.filter(t => t.status === "OPEN");
+    const closed = all.filter(t => t.status !== "OPEN").slice(0, 8);
+    const trades = [...opens, ...closed];
+    ctx.font = "10px 'Segoe UI', sans-serif";
+    trades.forEach((tr, ti) => {
+      const yE = y(tr.entry), yS = y(tr.sl), yT1 = y(tr.tp1), yT2 = y(tr.tp2);
+      const yT3 = y(tr.tp3 !== undefined ? tr.tp3 : tr.tp2 + (tr.tp2 - tr.tp1));
+      if ([yE, yS, yT1, yT2].some(v => v === null || isNaN(v))) return;
       const x0Raw = x(timeSec(tr.time));
       const x0 = (x0Raw === null || x0Raw < 0) ? 0 : x0Raw;
       const x1 = tr.status === "OPEN" ? W
         : (x(timeSec(tr.exit_time)) !== null ? x(timeSec(tr.exit_time)) : W);
       const isL = tr.side === "LONG";
-      const colTP = isL ? "22,199,132" : "234,57,67";   // LONG: TP di atas (hijau)
-      const colSL = isL ? "234,57,67" : "22,199,132";   // SELL: TP di bawah
-      // zona profit (entry -> tp2) dan zona risiko (entry -> sl)
-      const yTP1 = y(tr.tp1);
+      const win = tr.status === "WIN";
+      const colTP = isL ? "22,199,132" : "234,57,67";
+      const colSL = isL ? "234,57,67" : "22,199,132";
+      const opacity = tr.status === "OPEN" ? 1 : 0.55; // history lebih redup
+
+      // zona profit & risiko
       const bandTP = isL ? [yE, yT2] : [yT2, yE];
       const bandSL = isL ? [yE, yS] : [yS, yE];
-      ctx.fillStyle = `rgba(${colTP},0.13)`;
+      ctx.fillStyle = `rgba(${colTP},${0.13 * opacity})`;
       ctx.fillRect(x0, Math.min(bandTP[0], bandTP[1]), x1 - x0, Math.abs(bandTP[1] - bandTP[0]));
-      ctx.fillStyle = `rgba(${colSL},0.10)`;
+      ctx.fillStyle = `rgba(${colSL},${0.10 * opacity})`;
       ctx.fillRect(x0, Math.min(bandSL[0], bandSL[1]), x1 - x0, Math.abs(bandSL[1] - bandSL[0]));
-      // garis batas entry & tp2
-      ctx.fillStyle = `rgba(${colTP},0.5)`;
-      ctx.fillRect(x0, yT2 - 0.5, x1 - x0, 1);
-      // label TP 2 di tepi kanan zona (SL breakeven -> pakai risk awal trade)
-      const riskPts = Math.abs(tr.entry - tr.sl) || tr.risk || 0;
-      const rr = riskPts ? Math.abs(tr.tp2 - tr.entry) / riskPts : 0;
-      const lbl = `${tr.status === "OPEN" ? "▶ " : ""}TP 2 ($${fmt(tr.tp2)})  |  RR 1:${rr ? rr.toFixed(1) : "BE"}`;
-      ctx.font = "10px 'Segoe UI', sans-serif";
-      const ly = Math.min(bandTP[0], bandTP[1]) + 12;
-      if (ly > 0 && ly < H) {
-        ctx.fillStyle = isL ? "#16c784" : "#ea3943";
-        ctx.fillText(lbl, Math.max(x0 + 6, W - 240), ly);
+
+      // garis level + label nilai di tepi kanan (label penuh hanya trade aktif)
+      const isHis = tr.status !== "OPEN";
+      const line = (yy, rgb, lbl, dash) => {
+        if (yy === null || isNaN(yy) || yy < 0 || yy > H) return;
+        ctx.strokeStyle = `rgba(${rgb},${0.55 * opacity})`;
+        ctx.setLineDash(dash ? [4, 4] : []);
+        ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x1, yy); ctx.stroke();
+        ctx.setLineDash([]);
+        if (!isHis) {
+          ctx.fillStyle = `rgba(${rgb},0.9)`;
+          ctx.fillText(lbl, Math.max(x0 + 4, x1 - 150), yy - 3);
+        }
+      };
+      const tag = tr.status === "OPEN" ? "▶ " : `${tr.status} `;
+      line(yS, colSL, `${tag}SL ${fmt(tr.sl)}`, false);
+      line(yE, "217,182,74", `${tag}ENTRY ${fmt(tr.entry)}`, false);
+      line(yT1, colTP, `TP1 ${fmt(tr.tp1)}`, true);
+      line(yT2, colTP, `TP2 ${fmt(tr.tp2)}`, true);
+      if (tr.status === "OPEN" && tr.tp3 !== undefined) {
+        line(yT3, "124,140,160", `TP3 (proyeksi) ${fmt(tr.tp3)}`, true);
       }
-      // label status trade di sisi kiri zona
-      ctx.fillStyle = `rgba(${colTP},0.9)`;
-      ctx.fillText(`${tr.side} ${tr.status}${tr.kind === "GOLDEN" ? " ★" : ""}`, x0 + 6, yE + (isL ? -4 : 12));
+      // badge hasil utk history
+      if (tr.status !== "OPEN") {
+        const plTxt = `${tr.pl_usd >= 0 ? "+" : "-"}$${fmt(Math.abs(tr.pl_usd || 0), 2)}`;
+        ctx.fillStyle = tr.pl_usd >= 0 ? `rgba(22,199,132,${0.9 * opacity})`
+                                       : `rgba(234,57,67,${0.9 * opacity})`;
+        ctx.fillText(`${tr.side} ${tr.status} ${plTxt} (${tr.r >= 0 ? "+" : ""}${fmt(tr.r, 1)}R)`,
+          x0 + 6, yE + (isL ? -6 : 14));
+      }
     });
   }
 
@@ -658,6 +681,8 @@ function renderSnapshot(snap) {
       cell("PROFIT F", s.profit_factor === null ? "--" : s.profit_factor) +
       cell("AVG R", (s.avg_r >= 0 ? "+" : "") + s.avg_r, s.avg_r >= 0 ? "green-text" : "red-text");
     const stCls = (t) => t === "WIN" ? "WIN" : t === "LOSS" ? "LOSS" : t === "OPEN" ? "OPEN" : "TIME";
+    // detail review: kartu penuh per trade (semua data) — dipakai di halaman SIM
+    renderSimDetail(sim.trades || []);
     $("sim-list").innerHTML = (sim.trades || []).slice(0, 8).map(t => `
       <div class="sim-row">
         <span class="dim-text">${String(t.time).slice(5, 16).replace("T", " ")}</span>
@@ -667,6 +692,47 @@ function renderSnapshot(snap) {
         <span class="st ${stCls(t.status)}">${t.status}${t.kind === "GOLDEN" ? " ★" : ""}</span>
       </div>`).join("") || `<div class="dim-text">— belum ada trade; menunggu sinyal lolos filter</div>`;
   }
+
+/* ---------- kartu detail review per trade (halaman SIMULASI) ---------- */
+function renderSimDetail(trades) {
+  const box = $("sim-detail");
+  if (!box) return;
+  const f = state.simFilter || "ALL";
+  const rows = trades.filter(t => f === "ALL"
+    ? true
+    : f === "OPEN" ? t.status === "OPEN"
+    : f === "WIN" ? (t.status === "WIN" || t.status === "BE+")
+    : (t.status === "LOSS" || t.status === "TIME"));
+  box.innerHTML = rows.map(t => {
+    const cls = t.status === "OPEN" ? "open"
+      : t.pl_usd >= 0 ? "win" : "loss";
+    const pl = t.status === "OPEN" ? "—"
+      : `${t.pl_usd >= 0 ? "+" : "-"}$${fmt(Math.abs(t.pl_usd), 2)}`;
+    const plCls = t.pl_usd >= 0 ? "green-text" : "red-text";
+    const lvl = (lbl, v, cls2 = "") => `<span>${lbl} <b class="${cls2}">${fmt(v)}</b></span>`;
+    return `
+    <div class="sim-block ${cls}">
+      <div class="head">
+        <span class="when">${String(t.time).slice(0, 16).replace("T", " ")} → ${t.exit_time ? String(t.exit_time).slice(11, 16) : "…"}</span>
+        <span class="sym">${t.symbol || ""} · <span class="${t.side === "LONG" ? "green-text" : "red-text"}">${t.side}</span> · ${t.kind}${t.kind === "GOLDEN" ? " ★" : ""}</span>
+        <span class="chip ${t.status === "OPEN" ? "chip-amber" : t.pl_usd >= 0 ? "chip-green" : "chip-red"}">${t.status}</span>
+      </div>
+      <div class="levels">
+        ${lvl("ENTRY", t.entry)}${lvl("SL", t.sl, "red-text")}
+        ${lvl("TP1", t.tp1, "green-text")}${lvl("TP2", t.tp2, "green-text")}
+        ${lvl("TP3*", t.tp3, "dim-text")}
+        ${t.hit1 ? `<span class="chip chip-green" style="padding:1px 6px;font-size:9px">TP1 ✓</span>` : ""}
+      </div>
+      <div class="levels">
+        <span>UNIT <b>${fmt(t.units, 3)}</b></span>
+        <span>RISK <b class="red-text">$${fmt(t.risk_usd, 2)}</b></span>
+        <span>P/L <b class="${plCls}">${pl}</b> (${t.r >= 0 ? "+" : ""}${fmt(t.r, 2)}R)</span>
+        <span>BAR <b>${t.bars}</b></span>
+      </div>
+      <div class="why">${t.reason || (t.status === "OPEN" ? "posisi berjalan — SL/TP masih bisa tersentuh" : "—")}</div>
+    </div>`;
+  }).join("") || `<div class="dim-text">— tidak ada trade pada filter ini</div>`;
+}
 
   /* heatmap (kolom dinamis sesuai jumlah TF) */
   const hm = snap.heatmap;
@@ -950,6 +1016,16 @@ function bindUI() {
   document.querySelectorAll('[data-view="setting"]').forEach(b =>
     b.addEventListener("click", loadSettingsPage));
   loadSettingsPage();
+
+  // filter riwayat simulasi (halaman SIMULASI)
+  state.simFilter = "ALL";
+  document.querySelectorAll("[data-sfilter]").forEach(b => b.addEventListener("click", () => {
+    state.simFilter = b.dataset.sfilter;
+    document.querySelectorAll("[data-sfilter]").forEach(x =>
+      x.classList.toggle("on", x === b));
+    // render ulang dari snapshot terakhir
+    if (state.snap && state.snap.sim) renderSimDetail(state.snap.sim.trades || []);
+  }));
 
   const tgToggle = $("set-tg-on");
   if (tgToggle) tgToggle.addEventListener("click", () => {

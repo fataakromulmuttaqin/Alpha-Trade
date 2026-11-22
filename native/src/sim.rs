@@ -14,6 +14,10 @@ pub struct SimTrade {
     pub entry: f64, pub sl: f64, pub tp1: f64, pub tp2: f64,
     pub risk0: f64,            // |entry - sl awal| saat fill
     pub eff_risk: f64,         // risiko efektif % (vol-targeted)
+    pub risk_usd: f64,         // nominal $ yang dipertaruhkan
+    pub pl_usd: f64,           // P/L nominal $ saat close
+    pub units: f64,            // unit posisi (oz/kontrak)
+    pub reason: String,        // alasan hasil (utk review)
     pub r: f64,                // R terakumulasi (realized)
     pub bars: i64, pub hit1: bool,
     pub status: &'static str,  // OPEN / WIN / LOSS / BE+ / TIME
@@ -85,12 +89,15 @@ impl PaperSim {
                 let shift = c.open - p.entry;
                 let risk0 = (p.entry - p.sl).abs().max(1e-9);
                 let eff = if self.vol_target { self.risk_pct * p.vol_scale } else { self.risk_pct };
+                let risk_usd = self.equity * eff / 100.0;
                 self.trades.push(SimTrade {
                     id: self.next_id, time_ms: c.time_ms,
                     symbol: p.symbol.clone(),
                     side: if p.side == 1 { "LONG" } else { "SHORT" },
                     entry: c.open, sl: p.sl + shift, tp1: p.tp1 + shift,
-                    tp2: p.tp2 + shift, risk0, eff_risk: eff, r: 0.0, bars: 0,
+                    tp2: p.tp2 + shift, risk0, eff_risk: eff,
+                    risk_usd, pl_usd: 0.0, units: risk_usd / risk0,
+                    reason: String::new(), r: 0.0, bars: 0,
                     hit1: false, status: "OPEN", mode: p.mode.clone(),
                     kind: p.kind.clone(), exit_time_ms: None, exit_price: None,
                     equity_after: self.equity,
@@ -145,10 +152,23 @@ impl PaperSim {
                 }
             }
             if closed {
+                let eq_before = self.equity;
                 self.equity *= 1.0 + t.eff_risk / 100.0 * t.r;
                 t.equity_after = self.equity;
-                events.push(format!("[sim][{}] {} {} R={:.2} (EQ {:.2})",
-                    t.symbol, t.side, t.status, t.r, self.equity));
+                // detail review: nominal & alasan
+                t.risk_usd = eq_before * t.eff_risk / 100.0;
+                t.pl_usd = t.equity_after - eq_before;
+                t.units = t.risk_usd / t.risk0.max(1e-9);
+                t.reason = match t.status {
+                    "WIN" => "TP2 tercapai — sisa posisi jenuh penuh di target akhir"
+                        .to_string(),
+                    "BE+" => "TP1 tercapai (+50%), sisa keluar di breakeven — rugi 0".to_string(),
+                    "LOSS" => "SL tersentuh sebelum TP1 — harga berbalik arah".to_string(),
+                    "TIME" => format!("Time-stop {} bar — keluar di open (belum kena SL/TP)", self.max_hold),
+                    _ => String::new(),
+                };
+                events.push(format!("[sim][{}] {} {} R={:.2} (EQ {:.2}) P/L ${:.2} — {}",
+                    t.symbol, t.side, t.status, t.r, self.equity, t.pl_usd, t.reason));
             }
         }
         events
@@ -183,11 +203,14 @@ impl PaperSim {
 
     pub fn snapshot_list(&self, n: usize) -> serde_json::Value {
         let list: Vec<serde_json::Value> = self.trades.iter().rev().take(n).map(|t| {
+            let tp3 = t.tp2 + (t.tp2 - t.tp1); // proyeksi TP3 (jarak TP2→TP3 = TP1→TP2)
             json!({
                 "id": t.id, "time": crate::godmode::ms_to_str(t.time_ms), "symbol": t.symbol,
                 "side": t.side, "entry": r2(t.entry), "sl": r2(t.sl),
-                "tp1": r2(t.tp1), "tp2": r2(t.tp2),
+                "tp1": r2(t.tp1), "tp2": r2(t.tp2), "tp3": r2(tp3),
                 "risk": r2((t.entry - t.sl).abs()),
+                "risk_usd": r2(t.risk_usd), "pl_usd": r2(t.pl_usd),
+                "units": r3(t.units), "reason": t.reason,
                 "r": r3(t.r), "bars": t.bars, "hit1": t.hit1, "status": t.status,
                 "mode": t.mode, "kind": t.kind,
                 "exit_time": t.exit_time_ms.map(crate::godmode::ms_to_str),

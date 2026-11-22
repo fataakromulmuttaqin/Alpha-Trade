@@ -115,6 +115,7 @@
         <button class="chip bars-btn on" data-bars="80">80</button>
         <button class="chip bars-btn" data-bars="150">150</button>
         <button class="chip bars-btn" data-bars="0">ALL</button>
+        <button class="chip toggle on" data-toggle="REVIEW">REVIEW: ON</button>
         <button class="chip" id="forecast-chip" title="Proyeksi ATR: TP1/TP2/TP3 1x/2x/3x, SL 1.5x">FORECAST: --</button>
         <span class="chip chip-green" id="chart-structure">--</span>
       </div>
@@ -272,7 +273,20 @@
     </div>
 
     <div class="card sim-card">
-      <div class="card-head"><div class="card-title">SIMULASI TRADING <span class="info">ⓘ otomatis dari sinyal</span></div><span class="chip chip-dim" id="sim-equity">--</span></div>
+      <div class="card-head">
+        <div class="card-title">RIWAYAT SIMULASI — DETAIL REVIEW</div>
+        <div class="zone-controls">
+          <button class="chip bars-btn on" data-sfilter="ALL">SEMUA</button>
+          <button class="chip bars-btn" data-sfilter="WIN">WIN</button>
+          <button class="chip bars-btn" data-sfilter="LOSS">LOSS</button>
+          <button class="chip bars-btn" data-sfilter="OPEN">OPEN</button>
+        </div>
+      </div>
+      <div id="sim-detail" class="sim-detail"></div>
+    </div>
+
+    <div class="card sim-card">
+      <div class="card-head"><div class="card-title">SIMULASI RINGKAS <span class="info">ⓘ otomatis dari sinyal</span></div><span class="chip chip-dim" id="sim-equity">--</span></div>
       <div class="sim-stats" id="sim-stats"></div>
       <div id="sim-list" class="sim-list"></div>
     </div>
