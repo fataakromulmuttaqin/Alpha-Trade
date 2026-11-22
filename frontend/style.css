@@ -423,3 +423,21 @@ body.resizing .hsplit { cursor: row-resize; }
 .sim-scroll::-webkit-scrollbar-thumb:hover { background: #2a3240; }
 /* dashboard: kartu sim ringkas juga panel scroll (detail sama) */
 #sim-list.sim-scroll { max-height: 420px; min-height: 200px; }
+
+/* ---------- halaman SIM: riwayat kiri penuh-tinggi + kolom kanan ---------- */
+.sim-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+.sim-layout .sim-side-l { height: calc(100vh - 200px); min-height: 480px; display: flex; flex-direction: column; }
+.sim-layout .sim-side-l .sim-scroll { flex: 1; max-height: none; min-height: 0; }
+.sim-layout .sim-side-r { display: flex; flex-direction: column; gap: 10px; }
+.sim-layout .sim-side-r .log-list { max-height: 260px; }
+.sim-layout .sim-side-r .setup-val { font-size: 15px; }
+@media (max-width: 1000px) {
+  .sim-layout { grid-template-columns: 1fr; }
+  .sim-layout .sim-side-l { height: auto; }
+  .sim-layout .sim-side-l .sim-scroll { max-height: 60vh; }
+}

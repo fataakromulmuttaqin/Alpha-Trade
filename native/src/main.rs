@@ -141,18 +141,46 @@ async fn main() {
         if a.settings.tg_on {
             if let Some(t) = tg::Telegram::from_parts(&a.settings.tg_token, &a.settings.tg_chat_id) {
                 let cl = client.clone();
+                let syms_txt = symbols.join(", ");
                 tokio::spawn(async move {
-                    t.send(&cl, format!("🟢 <b>Alpha-Trade native</b> start — {} | EDGE-1H + ENGINE",
-                        symbols.join(", ")).as_str()).await;
+                    t.send(&cl, format!("🟢 <b>Alpha-Trade native</b> start — {syms_txt} | EDGE-1H + ENGINE").as_str()).await;
                 });
             }
         }
     }
 
-    // ---- feed loop
-    let (feed_app, feed_client, feed_entry_tf) = (app.clone(), client.clone(), entry_tf.clone());
+    // ---- feed loop (+ retry seed utk simbol yang gagal karena jaringan)
+    let (feed_app, feed_client, feed_entry_tf, feed_daily_stop) =
+        (app.clone(), client.clone(), entry_tf.clone(), daily_stop);
+    let mut pending_seeds: Vec<String> = {
+        let a = app.read().await;
+        symbols.iter()
+            .filter(|s| !a.syms.iter().any(|x| x.name == **s))
+            .cloned().collect()
+    };
     tokio::spawn(async move {
         loop {
+            // 1) coba seed ulang simbol yang gagal (jaringan pulih)
+            if !pending_seeds.is_empty() {
+                let mut a = feed_app.write().await;
+                let mut seeded = vec![];
+                for sym in pending_seeds.clone() {
+                    match feed::seed_all(&feed_client, &sym).await {
+                        Ok(buffers) => {
+                            println!("[feed] retry seed {sym} OK ({} TF)", buffers.len());
+                            a.syms.push(SymState {
+                                name: sym.clone(), buffers,
+                                sim: PaperSim::new(feed_daily_stop, 0),
+                                last_sig_time: None, last_spread: 0.0,
+                            });
+                            a.syms.last_mut().unwrap().sim.vol_target = vol_target;
+                            seeded.push(sym);
+                        }
+                        Err(_) => { /* coba lagi siklus berikutnya */ }
+                    }
+                }
+                for s in seeded { pending_seeds.retain(|x| *x != s); }
+            }
             let msgs = {
                 let mut a = feed_app.write().await;
                 let mut msgs = vec![];

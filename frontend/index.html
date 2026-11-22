@@ -258,8 +258,8 @@
 
 <!-- ================= VIEW: SIMULASI ================= -->
 <div class="view hidden" id="view-sim">
-  <div class="page-grid page-single">
-    <div class="card sim-card">
+  <div class="sim-layout">
+    <div class="card sim-card sim-side-l">
       <div class="card-head">
         <div class="card-title">RIWAYAT SIMULASI — DETAIL REVIEW <span class="info">ⓘ otomatis dari sinyal</span></div>
         <span class="chip chip-dim" id="sim-equity">--</span>
@@ -274,34 +274,37 @@
       <div id="sim-detail" class="sim-scroll sim-detail"></div>
     </div>
 
-    <div class="card setup-card">
-      <div class="card-title" id="setup-title">TRADE SETUP</div>
-      <div class="setup-label" id="su-label"></div>
-      <div class="setup-status dim-text" id="su-status"></div>
-      <div class="setup-grid" id="setup-grid">
-        <div class="setup-cell"><div class="zone-cap">ENTRY</div><div class="setup-val" id="su-entry">--</div></div>
-        <div class="setup-cell"><div class="zone-cap">STOP LOSS</div><div class="setup-val red-text" id="su-sl">--</div></div>
-        <div class="setup-cell"><div class="zone-cap" id="su-tp1-cap">TP 1</div><div class="setup-val green-text" id="su-tp1">--</div></div>
-        <div class="setup-cell"><div class="zone-cap" id="su-tp2-cap">TP 2</div><div class="setup-val green-text" id="su-tp2">--</div></div>
+    <div class="sim-side-r">
+      <div class="card setup-card">
+        <div class="card-title" id="setup-title">TRADE SETUP</div>
+        <div class="setup-label" id="su-label"></div>
+        <div class="setup-status dim-text" id="su-status"></div>
+        <div class="setup-grid" id="setup-grid">
+          <div class="setup-cell"><div class="zone-cap">ENTRY</div><div class="setup-val" id="su-entry">--</div></div>
+          <div class="setup-cell"><div class="zone-cap">STOP LOSS</div><div class="setup-val red-text" id="su-sl">--</div></div>
+          <div class="setup-cell"><div class="zone-cap" id="su-tp1-cap">TP 1</div><div class="setup-val green-text" id="su-tp1">--</div></div>
+          <div class="setup-cell"><div class="zone-cap" id="su-tp2-cap">TP 2</div><div class="setup-val green-text" id="su-tp2">--</div></div>
+        </div>
+        <div class="rr-box"><div class="zone-cap">RISK / REWARD</div><div class="rr-val gold-text" id="su-rr">--</div></div>
       </div>
-      <div class="rr-box"><div class="zone-cap">RISK / REWARD</div><div class="rr-val gold-text" id="su-rr">--</div></div>
-    </div>
 
-    <div class="card journal-card">
-      <div class="card-head"><div class="card-title">INSTITUTIONAL JOURNAL</div><span class="chip chip-dim" id="jr-winrate">0%</span></div>
-      <div class="journal-row">
-        <span class="dim-text">Wins: <b id="jr-wins" class="green-text">0</b></span>
-        <span class="dim-text">Losses: <b id="jr-losses" class="red-text">0</b></span>
-        <button class="btn-ghost sm green-border" id="jr-win">+ WIN</button>
-        <button class="btn-ghost sm red-border" id="jr-loss">+ LOSS</button>
-        <button class="btn-ghost sm" id="jr-reset">Reset</button>
+      <div class="card journal-card">
+        <div class="card-head"><div class="card-title">INSTITUTIONAL JOURNAL</div><span class="chip chip-dim" id="jr-winrate">0%</span></div>
+        <div class="journal-row">
+          <span class="dim-text">Wins: <b id="jr-wins" class="green-text">0</b></span>
+          <span class="dim-text">Losses: <b id="jr-losses" class="red-text">0</b></span>
+          <button class="btn-ghost sm green-border" id="jr-win">+ WIN</button>
+          <button class="btn-ghost sm red-border" id="jr-loss">+ LOSS</button>
+          <button class="btn-ghost sm" id="jr-reset">Reset</button>
+        </div>
+      </div>
+
+      <div class="card log-card">
+        <div class="card-head"><div class="card-title">SIGNAL ACTIVITY LOG</div><button class="btn-ghost sm" id="btn-clear-log">CLEAR</button></div>
+        <div id="log-list" class="log-list"><div class="dim-text">— Waiting for signals…</div></div>
       </div>
     </div>
-
-    <div class="card log-card">
-      <div class="card-head"><div class="card-title">SIGNAL ACTIVITY LOG</div><button class="btn-ghost sm" id="btn-clear-log">CLEAR</button></div>
-      <div id="log-list" class="log-list"><div class="dim-text">— Waiting for signals…</div></div>
-    </div>
+  </div>
   </div><!-- /page-grid -->
 </div><!-- /view-sim -->
 

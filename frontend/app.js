@@ -852,6 +852,8 @@ async function pollSnapshot() {
     const q = (state.activeTf ? `?tf=${state.activeTf}` : "")
             + (state.activeSymbol ? `&symbol=${state.activeSymbol}` : "");
     renderSnapshot(await (await fetch(api_("/api/snapshot" + q))).json());
+    // chart belum terisi (boot gagal saat server belum siap) -> coba initial-load
+    if (!state.activeTf && !_bootDataLoading) loadInitialData();
     if (state.activeTf) await refreshLatestCandles();
   } catch (e) { /* jaringan gotoh — coba lagi di tick berikutnya */ }
 }
@@ -990,7 +992,11 @@ function bindUI() {
       b.classList.toggle("on", b.dataset.view === name));
     localStorage.setItem("at-view", name);
     window.scrollTo(0, 0);
-    if (name === "trading") setTimeout(() => drawCanvas(), 80); // redraw overlay pasca tampil
+    if (name === "trading") {
+      // bila data awal belum masuk (boot saat buffer server belum siap), muat
+      if (!_bootDataDone) loadInitialData();
+      setTimeout(() => drawCanvas(), 80); // redraw overlay pasca tampil
+    }
   };
   document.querySelectorAll(".side-btn").forEach(b =>
     b.addEventListener("click", () => switchView(b.dataset.view)));
@@ -1337,19 +1343,32 @@ function postSettingsBody(extra = {}) {
 }
 
 /* ============================== BOOT ============================== */
+let _bootDataDone = false;
+let _bootDataLoading = false;
+async function loadInitialData() {
+  if (_bootDataLoading) return;
+  _bootDataLoading = true;
+  // retry: server baru restart -> buffer belum siap (503); coba hingga siap
+  for (let i = 0; i < 60; i++) {
+    try {
+      const snap = await (await fetch(api_("/api/snapshot"))).json();
+      if (!snap.error) {
+        renderSnapshot(snap);
+        await switchTf(snap.tf_entry || "15m");
+        _bootDataDone = true;
+        return;
+      }
+    } catch (e) { /* server belum hidup */ }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+}
+
 async function boot() {
   initChart();
   initSplitters();
   bindUI();
   restoreMode();
-  try {
-    const snap = await (await fetch(api_("/api/snapshot"))).json();
-    if (!snap.error) {
-      renderSnapshot(snap);
-      const tf = snap.tf_entry || "15m";
-      await switchTf(tf);
-    }
-  } catch (e) { console.warn("snapshot awal gagal:", e); }
+  await loadInitialData();
   connectWS();
   startPolling(state.pollOnly ? 4000 : 15000);
 }

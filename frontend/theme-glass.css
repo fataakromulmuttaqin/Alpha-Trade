@@ -1,48 +1,67 @@
-/* ALPHA-TRADE — GLASSMORPHISM theme (opsional, reversible)
-   Aktif bila <html data-theme="glass"> — di-toggle tombol "THEME" di footer.
+/* ALPHA-TRADE — PRO TERMINAL × GLASSMORPHISM (tema utama, reversible)
+   Aktif bila <html data-theme="glass"> — toggle tombol "THEME" di footer.
+   Nuansa: terminal trading profesional (gelap pekat, kontras tinggi,
+   aksen monospace, garis tipis) DITIMPA kaca blur — dua bahasa dipadukan.
    File ini HANYA menimpa warna/blur/border; ukuran layout tidak diubah.
-   Cara menghapus total: buang <link href="theme-glass.css"> dari index.html.
-   Kaca hanya di permukaan BESAR (card/topbar/tf-row) — kontrol kecil
-   translucent tanpa backdrop-filter supaya chart tetap 60fps. */
+   Cara menghapus total: buang <link href="theme-glass.css"> dari index.html. */
 
-/* ---------- latar: gelap bergradasi + blob cahaya pemantul kaca ----------
-   Blob digambar sebagai layer background <html> (bukan pseudo-element) —
+/* ---------- latar: terminal gelap + blob redup + grid halus ----------
+   Semua layer diletakkan sebagai background <html> (bukan pseudo-element) —
    background html terpropagasi ke canvas sehingga SELALU di belakang semua
-   konten dan jadi backdrop blur untuk kaca. */
+   konten dan menjadi backdrop blur kaca. */
 html[data-theme="glass"] {
-  background-color: #070a0f;
+  background-color: #04060a;
   background-image:
-    radial-gradient(42% 34% at 16% 8%, rgba(229,196,86,.38), transparent 60%),
-    radial-gradient(46% 36% at 90% 16%, rgba(45,212,191,.30), transparent 60%),
-    radial-gradient(40% 32% at 60% 96%, rgba(22,199,132,.26), transparent 58%),
-    radial-gradient(32% 28% at 4% 82%, rgba(124,148,255,.24), transparent 60%),
-    radial-gradient(50% 30% at 50% 45%, rgba(217,120,74,.10), transparent 65%),
-    linear-gradient(180deg, #0c1017 0%, #05070b 100%);
+    /* grid terminal halus (garis tipis tiap 44px) */
+    repeating-linear-gradient(0deg, rgba(120, 150, 190, .045) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(90deg, rgba(120, 150, 190, .035) 0 1px, transparent 1px 44px),
+    /* blob cahaya versi redup-pro */
+    radial-gradient(40% 30% at 14% 6%, rgba(229, 196, 86, .16), transparent 60%),
+    radial-gradient(44% 32% at 92% 14%, rgba(45, 212, 191, .13), transparent 60%),
+    radial-gradient(38% 28% at 58% 98%, rgba(22, 199, 132, .11), transparent 58%),
+    linear-gradient(180deg, #07090e 0%, #030407 100%);
   background-attachment: fixed;
 }
-html[data-theme="glass"] body {
-  background: transparent;
-}
+html[data-theme="glass"] body { background: transparent; }
 
-/* ---------- permukaan kaca besar ---------- */
+/* ---------- permukaan: kaca gelap terminal ---------- */
 html[data-theme="glass"] .card,
 html[data-theme="glass"] .stat-card,
 html[data-theme="glass"] .tf-row,
 html[data-theme="glass"] .zone-box,
-html[data-theme="glass"] .topbar {
-  background: rgba(16, 20, 27, .52);
-  -webkit-backdrop-filter: blur(12px) saturate(145%);
-  backdrop-filter: blur(12px) saturate(145%);
-  border: 1px solid rgba(255, 255, 255, .09);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .35),
-              inset 0 1px 0 rgba(255, 255, 255, .07);
+html[data-theme="glass"] .topbar,
+html[data-theme="glass"] .sidebar {
+  background: rgba(8, 11, 16, .68);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  backdrop-filter: blur(10px) saturate(130%);
+  border: 1px solid rgba(140, 165, 200, .14);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .5),
+              inset 0 1px 0 rgba(255, 255, 255, .05);
 }
-html[data-theme="glass"] .topbar {
-  border-radius: 14px;
-  padding: 8px 14px 12px;
+/* garis aksen tipis di atas kartu — bahasa terminal */
+html[data-theme="glass"] .card::before,
+html[data-theme="glass"] .stat-card::before {
+  content: "";
+  display: block;
+  height: 2px;
+  margin: -12px -14px 10px;
+  border-radius: 10px 10px 0 0;
+  background: linear-gradient(90deg, rgba(217,182,74,.55), rgba(45,212,191,.25) 40%, transparent 80%);
 }
-html[data-theme="glass"] .stat-card,
-html[data-theme="glass"] .card { border-radius: 14px; }
+html[data-theme="glass"] .topbar { border-radius: 10px; padding: 8px 14px 12px; }
+
+/* ---------- tipografi terminal: label lebih tajam ---------- */
+html[data-theme="glass"] .card-title,
+html[data-theme="glass"] .stat-label,
+html[data-theme="glass"] .label-dim {
+  letter-spacing: .14em;
+  color: #93a1b5;
+}
+html[data-theme="glass"] .stat-value,
+html[data-theme="glass"] .big-price,
+html[data-theme="glass"] .zone-price,
+html[data-theme="glass"] .setup-val { text-shadow: 0 0 14px rgba(217, 182, 74, .18); }
 
 /* ---------- kontrol kecil: translucent tanpa blur (performa) ---------- */
 html[data-theme="glass"] .chip,
@@ -52,16 +71,22 @@ html[data-theme="glass"] .icon-btn,
 html[data-theme="glass"] .btn-ghost,
 html[data-theme="glass"] .badge,
 html[data-theme="glass"] .conf-row .pts,
-html[data-theme="glass"] .zone-controls input {
-  background: rgba(255, 255, 255, .045);
-  border-color: rgba(255, 255, 255, .12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+html[data-theme="glass"] .zone-controls input,
+html[data-theme="glass"] .side-btn,
+html[data-theme="glass"] .bn-btn {
+  background: rgba(120, 150, 190, .06);
+  border-color: rgba(140, 165, 200, .16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
 }
 html[data-theme="glass"] .chip.on,
 html[data-theme="glass"] .tf-btn.on,
-html[data-theme="glass"] .mode-gold {
-  background: rgba(217, 182, 74, .14);
-  border-color: rgba(217, 182, 74, .45);
+html[data-theme="glass"] .mode-gold,
+html[data-theme="glass"] .side-btn.on,
+html[data-theme="glass"] .bn-btn.on {
+  background: rgba(217, 182, 74, .12);
+  border-color: rgba(217, 182, 74, .5);
+  color: #e6c766;
+  box-shadow: 0 0 12px rgba(217, 182, 74, .12);
 }
 html[data-theme="glass"] .chip-green { background: rgba(22, 199, 132, .13); border-color: rgba(22,199,132,.42); }
 html[data-theme="glass"] .chip-red,
@@ -69,7 +94,15 @@ html[data-theme="glass"] .mode-red { background: rgba(234, 57, 67, .12); border-
 
 html[data-theme="glass"] .btn-gold {
   background: linear-gradient(180deg, #e6c766, #c79b2e);
-  box-shadow: 0 4px 18px rgba(217, 182, 74, .28);
+  box-shadow: 0 4px 18px rgba(217, 182, 74, .25);
+}
+
+/* ---------- kaca khusus panel terminal ---------- */
+html[data-theme="glass"] .sim-block,
+html[data-theme="glass"] .setup-cell,
+html[data-theme="glass"] .sim-stat {
+  background: rgba(10, 14, 20, .55);
+  border-color: rgba(140, 165, 200, .14);
 }
 
 /* ---------- garis pemisah & elemen sekunder ---------- */
@@ -87,9 +120,9 @@ html[data-theme="glass"] .hsplit:hover, html[data-theme="glass"] .hsplit.drag {
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   html[data-theme="glass"] .card,
   html[data-theme="glass"] .stat-card,
-  html[data-theme="glass"] .tf-row { background: rgba(16, 20, 27, .84); }
+  html[data-theme="glass"] .tf-row { background: rgba(8, 11, 16, .92); }
 }
 
-/* ---------- scrollbar menyatu dengan kaca ---------- */
-html[data-theme="glass"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .14); }
+/* ---------- scrollbar terminal ---------- */
+html[data-theme="glass"] ::-webkit-scrollbar-thumb { background: rgba(140, 165, 200, .22); }
 html[data-theme="glass"] ::-webkit-scrollbar-track { background: transparent; }
