@@ -78,23 +78,36 @@ class DashboardServer:
                                        "ws_port": srv.ws_port})
                 if u.path == "/api/snapshot":
                     q = parse_qs(u.query)
-                    snap = srv.state.snapshot(view_tf=(q.get("tf") or [None])[0])
+                    sym = (q.get("symbol") or [None])[0]
+                    snap = srv.state.snapshot(view_tf=(q.get("tf") or [None])[0], symbol=sym)
                     if snap is None:
                         return self._json({"error": "buffer belum siap"}, 503)
                     return self._json(snap)
                 if u.path == "/api/candles":
                     q = parse_qs(u.query)
                     tf = (q.get("tf") or [""])[0]
+                    sym = (q.get("symbol") or [None])[0]
                     limit = int((q.get("limit") or ["1500"])[0])
-                    rows = srv.state.candles(tf, limit)
+                    rows = srv.state.candles(tf, limit, symbol=sym)
                     if rows is None:
                         return self._json({"error": f"tf '{tf}' tidak tersedia"}, 404)
-                    return self._json({"tf": tf, "candles": rows})
+                    return self._json({"tf": tf, "symbol": sym or srv.state.symbol, "candles": rows})
                 if u.path == "/api/signals":
-                    return self._json(srv.state.signals())
+                    q = parse_qs(u.query)
+                    sym = (q.get("symbol") or [None])[0]
+                    return self._json(srv.state.signals(symbol=sym))
                 if u.path == "/api/sim":
-                    return self._json({"stats": srv.state.sim.summary(),
-                                       "trades": srv.state.sim.snapshot_list(50)})
+                    q = parse_qs(u.query)
+                    sym = (q.get("symbol") or [None])[0]
+                    return self._json(srv.state.sim_data(symbol=sym))
+                if u.path == "/api/symbols":
+                    return self._json({"symbols": srv.state.symbol_list(), "primary": srv.state.symbol})
+                if u.path == "/api/mt5/symbols":
+                    q = parse_qs(u.query)
+                    qry = (q.get("q") or [""])[0]
+                    lim = int((q.get("limit") or ["80"])[0])
+                    return self._json({"symbols": srv.state.mt5.list_broker_symbols(query=qry, limit=lim),
+                                       "active": srv.state.symbol_list()})
                 if u.path == "/api/news":
                     items = srv.state.news_feed.maybe_refresh()
                     return self._json({"items": items, "count": len(items),
@@ -108,6 +121,8 @@ class DashboardServer:
                             return self._json(json.load(f))
                     except (json.JSONDecodeError, OSError):
                         return self._json({"error": "laporan rusak; jalankan ulang backend.research_report"}, 503)
+                if u.path == "/api/mt5/status":
+                    return self._json(srv.state.mt5.status())
                 if u.path == "/api/settings":
                     st = getattr(srv.state, "app_settings", None) or {}
                     return self._json({
@@ -142,12 +157,72 @@ class DashboardServer:
 
             def do_POST(self):
                 u = urlparse(self.path)
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                    raw_body = self.rfile.read(length) if length > 0 else b"{}"
+                    body = json.loads(raw_body or b"{}")
+                except Exception:
+                    body = None
+
+                # --- Multi-pair management endpoints ---
+                if u.path == "/api/symbols/add":
+                    if body is None or not body.get("symbol"):
+                        return self._json({"ok": False, "error": "field 'symbol' wajib diisi"}, 400)
+                    ok, msg, sym = srv.state.add_mt5_symbol(body["symbol"])
+                    return self._json({"ok": ok, "msg": msg, "symbol": sym,
+                                       "symbols": srv.state.symbol_list()}, 200 if ok else 400)
+                if u.path == "/api/symbols/remove":
+                    if body is None or not body.get("symbol"):
+                        return self._json({"ok": False, "error": "field 'symbol' wajib diisi"}, 400)
+                    ok, msg = srv.state.remove_mt5_symbol(body["symbol"])
+                    return self._json({"ok": ok, "msg": msg,
+                                       "symbols": srv.state.symbol_list()}, 200 if ok else 400)
+
+                # --- MetaTrader 5 endpoints ---
+                if u.path == "/api/mt5/connect":
+                    if body is None:
+                        return self._json({"ok": False, "error": "body JSON tidak valid"}, 400)
+                    if body:
+                        srv.state.update_mt5_settings(body)
+                    ok, msg = srv.state.mt5.connect()
+                    srv.state.rebuild_and_broadcast(recompute_signals=False)
+                    return self._json({"ok": ok, "msg": msg, "status": srv.state.mt5.status()},
+                                      200 if ok else 502)
+                if u.path == "/api/mt5/disconnect":
+                    srv.state.mt5.disconnect()
+                    srv.state.rebuild_and_broadcast(recompute_signals=False)
+                    return self._json({"ok": True, "msg": "MT5 diputus", "status": srv.state.mt5.status()})
+                if u.path == "/api/mt5/arm":
+                    if body is None or "armed" not in body:
+                        return self._json({"ok": False, "error": "field 'armed' (bool) wajib diisi"}, 400)
+                    ok, msg = srv.state.mt5.set_armed(bool(body["armed"]))
+                    srv.state.rebuild_and_broadcast(recompute_signals=False)
+                    return self._json({"ok": ok, "msg": msg, "status": srv.state.mt5.status()},
+                                      200 if ok else 400)
+                if u.path == "/api/mt5/settings":
+                    if body is None:
+                        return self._json({"ok": False, "error": "body JSON tidak valid"}, 400)
+                    settings = srv.state.update_mt5_settings(body)
+                    srv.state.rebuild_and_broadcast(recompute_signals=False)
+                    return self._json({"ok": True, "settings": settings, "status": srv.state.mt5.status()})
+                if u.path == "/api/mt5/close":
+                    if body is None:
+                        return self._json({"ok": False, "error": "body JSON tidak valid"}, 400)
+                    if body.get("all"):
+                        n, errs = srv.state.mt5.close_all()
+                        srv.state.rebuild_and_broadcast(recompute_signals=False)
+                        return self._json({"ok": len(errs) == 0,
+                                           "msg": f"{n} posisi ditutup" + (f" ({'; '.join(errs)})" if errs else ""),
+                                           "status": srv.state.mt5.status()})
+                    if "ticket" in body:
+                        ok, msg = srv.state.mt5.close_position(body["ticket"])
+                        srv.state.rebuild_and_broadcast(recompute_signals=False)
+                        return self._json({"ok": ok, "msg": msg, "status": srv.state.mt5.status()},
+                                          200 if ok else 400)
+                    return self._json({"ok": False, "error": "kirim 'ticket' atau 'all: true'"}, 400)
+
                 if u.path == "/api/tg-test":
-                    try:
-                        length = int(self.headers.get("Content-Length") or 0)
-                        body = json.loads(self.rfile.read(length) or b"{}")
-                    except Exception:
-                        body = {}
+                    body = body or {}
                     st = getattr(srv.state, "app_settings", {}) or {}
                     token = body.get("tg_token") or st.get("tg_token", "")
                     chat = body.get("tg_chat_id") or st.get("tg_chat_id", "")
@@ -169,10 +244,7 @@ class DashboardServer:
                     self.send_response(404)
                     self.end_headers()
                     return
-                try:
-                    length = int(self.headers.get("Content-Length") or 0)
-                    body = json.loads(self.rfile.read(length) or b"{}")
-                except Exception:
+                if body is None:
                     return self._json({"error": "body JSON tidak valid"}, 400)
                 before = (srv.state.sensitivity, srv.state.exit_protocol)
                 result = srv.state.apply_settings(body)

@@ -17,8 +17,8 @@ from .confluence_engine import Config, atr as atr_fn, ema, generate_signals, rsi
 from .godmode_engine import (ai_reasoning, classify_setup, choch_recent,
                             confluence_godmode, events_full, forecast, fvg_zones,
                             market_condition, multi_zones, order_blocks, pdh_pdl,
-                            rsi_divergence_recent, session_info, structure_label,
-                            trend_lamps, two_stage)
+                            price_digits, rsi_divergence_recent, session_info,
+                            structure_label, trend_lamps, two_stage)
 from .smc_structure import structure_events
 
 
@@ -89,7 +89,8 @@ def zones(df, a, L=5, lookback=200):
             inside = z["bottom"] <= c <= z["top"]
             near = 0 <= (z["top"] - c) <= 0.5 * a
             status = "PRICE IN ZONE" if inside else ("AT DEMAND" if near else "ENTRY BUY")
-        out[name] = {"top": round(z["top"], 2), "bottom": round(z["bottom"], 2),
+        dp = price_digits(c)
+        out[name] = {"top": round(z["top"], dp), "bottom": round(z["bottom"], dp),
                      "strength": f"{strength} candles",
                      "cvd": int(round(cvd_at)), "status": status}
     return out
@@ -173,10 +174,11 @@ def fib_state(df, lookback=120):
         return {}
     c = float(df["close"].iloc[-1])
     pos = (c - lo) / rng
+    dp = price_digits(c)
     return {"high": hi, "low": lo, "eq": lo + 0.5 * rng, "gp": hi - 0.618 * rng,
             "ote": hi - 0.786 * rng,
             "state": "DISCOUNT" if pos < 0.5 else "PREMIUM",
-            "equilibrium": round(lo + 0.5 * rng, 2)}
+            "equilibrium": round(lo + 0.5 * rng, dp)}
 
 
 # ----------------------------- Heatmap MTF ----------------------------------
@@ -262,9 +264,10 @@ def header_stats(df, df_htf, cfg, cf=None):
     label, label_sub = structure_label(df, 5)
     f = fib_state(df)
     score = cf["score"] if cf else 0
-    return {"price": round(float(c.iloc[-1]), 2), "rsi": round(r, 1),
+    dp = price_digits(float(c.iloc[-1]))
+    return {"price": round(float(c.iloc[-1]), dp), "rsi": round(r, 1),
             "rsi_label": "Neutral" if 45 <= r <= 55 else ("Bullish" if r > 55 else "Bearish"),
-            "atr": round(a, 2),
+            "atr": round(a, dp),
             "atr_label": "Volatilitas TF entry",
             "structure": label, "structure_sub": label_sub,
             "structure_cycle": state,          # EXPANDING/CONTRACTING (lama)
@@ -307,24 +310,25 @@ def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD", vie
     div_ok = rsi_divergence_recent(df)
     label = classify_setup(cf, choch_ok, div_ok)
 
+    dp = price_digits(float(df["close"].iloc[-1]))
     setup = None
     if len(sig):
         row = sig.iloc[-1]
         d = int(row["signal"])
         rr = (abs(row["tp2"] - row["entry"]) / abs(row["entry"] - row["sl"]))
         setup = {"side": "SELL" if d == -1 else "BUY", "time": str(sig.index[-1]),
-                 "entry": round(float(row["entry"]), 2), "sl": round(float(row["sl"]), 2),
-                 "tp1": round(float(row["tp1"]), 2), "tp2": round(float(row["tp2"]), 2),
+                 "entry": round(float(row["entry"]), dp), "sl": round(float(row["sl"]), dp),
+                 "tp1": round(float(row["tp1"]), dp), "tp2": round(float(row["tp2"]), dp),
                  "rr": f"1:{rr:.0f}", "score": int(row["score"]),
                  "reason": str(row["reason"]),
                  "label": label if sig.index[-1] == df.index[-1] else None,
                  "fresh": sig.index[-1] == df.index[-1]}
 
-    golden = {"price": round(float(df["close"].iloc[-1]), 2),
+    golden = {"price": round(float(df["close"].iloc[-1]), dp),
               "state": "EXECUTE (GOLDEN)" if setup and setup["fresh"] and setup["score"] >= 3
               else ("STANDBY" if not (setup and setup["fresh"]) else "EXECUTE"),
               "sub": "GET READY (GOLDEN)"}
-    high_risk = {"price": round(float(df["close"].iloc[-1]), 2),
+    high_risk = {"price": round(float(df["close"].iloc[-1]), dp),
                  "state": "EXECUTE (HIGH RISK)" if setup and setup["fresh"] and setup["score"] < 3 else "WAIT",
                  "sub": "HIGH RISK " + ("ON" if setup and setup["fresh"] and setup["score"] < 3 else "OFF")}
 
@@ -332,7 +336,7 @@ def build_snapshot(buffers, cfg=Config(), signals_log=None, symbol="XAUUSD", vie
     old_conf = confluence(df, df_htf, cfg)
 
     return {
-        "symbol": symbol, "ts": pd.Timestamp.now(tz="UTC").isoformat(),
+        "symbol": symbol, "price_digits": dp, "ts": pd.Timestamp.now(tz="UTC").isoformat(),
         "tf_entry": tf_entry, "tf_htf": tf_htf,
         "stats": header_stats(df, df_htf, cfg, cf),
         "market_condition": cond,

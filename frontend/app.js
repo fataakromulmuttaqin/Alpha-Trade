@@ -12,6 +12,7 @@ window.addEventListener("unhandledrejection", (e) =>
 
 const state = {
   chart: null, series: null, candles: [], activeTf: null, engineTf: null,
+  activeSymbol: null, priceDigits: 2,
   snap: null, ws: null, wsBackoff: 1000,
   lines: { OB: [], FVG: [], LIMIT: [], RR: [], FORECAST: [], BASE: [], PDHL: [] },
   cvdSeries: null, markersApi: null,
@@ -39,6 +40,23 @@ const setApiBase = (v) => {            // dipanggil dari klik status koneksi
 };
 const api_ = (p) => API() + p;
 const fmt = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? "--" : Number(v).toFixed(d);
+const inferDigits = (px) => {
+  const p = Math.abs(Number(px || 0));
+  if (!p) return 2;
+  if (p < 20) return 5;
+  if (p < 500) return 3;
+  return 2;
+};
+const fmtPx = (v) => fmt(v, state.priceDigits || 2);
+function applyChartPrecision(d) {
+  const prec = Math.max(1, Math.min(6, parseInt(d, 10) || 2));
+  state.priceDigits = prec;
+  if (state.series) {
+    state.series.applyOptions({
+      priceFormat: { type: "price", precision: prec, minMove: Number(Math.pow(10, -prec).toFixed(prec)) },
+    });
+  }
+}
 
 /* ============================== CHART ============================== */
 function initChart() {
@@ -76,6 +94,9 @@ async function loadCandles(tf, limitOverride) {
   if (!r.ok) { console.warn("candles", tf, "tidak tersedia"); return false; }
   const j = await r.json();
   state.candles = j.candles;
+  if (state.candles.length) {
+    applyChartPrecision(inferDigits(state.candles[state.candles.length - 1][4]));
+  }
   state.series.setData(state.candles.map(c => ({
     time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4],
   })));
@@ -281,7 +302,7 @@ function drawCanvas() {
       ctx.fillStyle = `rgb(${col})`;
       const nama = isSupply ? "Supply" : "Demand";
       const tag = z.level.replace(/^[SD]/, "Z");
-      ctx.fillText(`${nama} ${tag}  ${fmt(z.bottom)} – ${fmt(z.top)}`, x0 + 6, (yT + yB) / 2 + 3);
+      ctx.fillText(`${nama} ${tag}  ${fmtPx(z.bottom)} – ${fmtPx(z.top)}`, x0 + 6, (yT + yB) / 2 + 3);
     };
     zm.supply.forEach(z => drawBand(z, true));
     zm.demand.forEach(z => drawBand(z, false));
@@ -333,12 +354,12 @@ function drawCanvas() {
         }
       };
       const tag = tr.status === "OPEN" ? "▶ " : `${tr.status} `;
-      line(yS, colSL, `${tag}SL ${fmt(tr.sl)}`, false);
-      line(yE, "217,182,74", `${tag}ENTRY ${fmt(tr.entry)}`, false);
-      line(yT1, colTP, `TP1 ${fmt(tr.tp1)}`, true);
-      line(yT2, colTP, `TP2 ${fmt(tr.tp2)}`, true);
+      line(yS, colSL, `${tag}SL ${fmtPx(tr.sl)}`, false);
+      line(yE, "217,182,74", `${tag}ENTRY ${fmtPx(tr.entry)}`, false);
+      line(yT1, colTP, `TP1 ${fmtPx(tr.tp1)}`, true);
+      line(yT2, colTP, `TP2 ${fmtPx(tr.tp2)}`, true);
       if (tr.status === "OPEN" && tr.tp3 !== undefined) {
-        line(yT3, "124,140,160", `TP3 (proyeksi) ${fmt(tr.tp3)}`, true);
+        line(yT3, "124,140,160", `TP3 (proyeksi) ${fmtPx(tr.tp3)}`, true);
       }
       // badge hasil utk history
       if (tr.status !== "OPEN") {
@@ -377,7 +398,7 @@ function drawCanvas() {
     ctx.fillStyle = bg;
     ctx.fillRect(W - bw - 2, yy - bh / 2, bw, bh);
     ctx.fillStyle = fg;
-    ctx.fillText(fmt(priceVal), W - bw + 6, yy + 3.5);
+    ctx.fillText(fmtPx(priceVal), W - bw + 6, yy + 3.5);
     ctx.fillStyle = bg;
     ctx.textAlign = "right";
     ctx.fillText(label, W - bw - 8, yy + 3.5);
@@ -509,43 +530,43 @@ function renderSnapshot(snap) {
   state.snap = snap;
   if (snap.engine_entry) state.engineTf = snap.engine_entry;
   const st = snap.stats;
+  if (snap.price_digits || (st && st.price)) {
+    applyChartPrecision(snap.price_digits || inferDigits(st.price));
+  }
+  if (!state.activeSymbol && snap.symbol) state.activeSymbol = snap.symbol;
 
-  $("st-price").textContent = fmt(st.price);
+  $("st-price").textContent = fmtPx(st.price);
   $("st-symbol").textContent = `${snap.symbol} Live${snap.demo ? " — DEMO" : ""}${snap.view_only ? ` (${snap.tf_entry.toUpperCase()} view)` : ""}`;
   $("st-rsi").textContent = fmt(st.rsi, 1);
   $("st-rsi-sub").textContent = st.rsi_label;
-  $("st-atr").textContent = fmt(st.atr);
+  $("st-atr").textContent = fmtPx(st.atr);
   $("st-structure").textContent = st.structure;
   $("st-structure-sub").textContent = st.structure_sub;
   $("st-ai").innerHTML = `${st.ai_score}<small>/100</small>`;
   $("st-ai-sub").textContent = st.ai_label;
   $("st-fib").textContent = st.fib;
-  $("st-fib-sub").textContent = `Equilibrium: ${fmt(st.equilibrium)}`;
+  $("st-fib-sub").textContent = `Equilibrium: ${fmtPx(st.equilibrium)}`;
 
   $("chart-title").textContent = `${(snap.tf_entry || "").toUpperCase()} INSTITUTIONAL MATRIX — ${snap.symbol}`;
   $("chart-structure").textContent = st.structure;
 
-  /* pemilih simbol (multi-simbol native) */
+  /* pemilih simbol (multi-pair MT5 / native) */
   const selSym = $("sel-symbol");
   if (selSym) {
     const list = snap.symbols || [snap.symbol];
-    if (list.length > 1) {
-      selSym.style.display = "";
-      const cur = selSym.value;
-      if (selSym.options.length !== list.length ||
-          [...selSym.options].some((o, k) => o.value !== list[k])) {
-        selSym.innerHTML = list.map(s => `<option value="${s}">${s}</option>`).join("");
-      }
-      selSym.value = state.activeSymbol || snap.symbol;
-    } else {
-      selSym.style.display = "none";
+    selSym.style.display = "";
+    if (selSym.options.length !== list.length ||
+        [...selSym.options].some((o, k) => o.value !== list[k])) {
+      selSym.innerHTML = list.map(s => `<option value="${s}">${s}</option>`).join("");
     }
+    const wantSym = state.activeSymbol && list.includes(state.activeSymbol) ? state.activeSymbol : snap.symbol;
+    selSym.value = wantSym;
   }
 
   /* golden / high risk */
-  $("golden-price").textContent = fmt(snap.golden.price);
+  $("golden-price").textContent = fmtPx(snap.golden.price);
   $("golden-state").textContent = snap.golden.state;
-  $("highrisk-price").textContent = fmt(snap.high_risk.price);
+  $("highrisk-price").textContent = fmtPx(snap.high_risk.price);
   $("highrisk-state").textContent = snap.high_risk.state;
   $("highrisk-sub").textContent = snap.high_risk.sub;
 
@@ -624,15 +645,15 @@ function renderSnapshot(snap) {
   /* zone map */
   const z = snap.zones;
   if (z.supply) {
-    $("sup-top").textContent = fmt(z.supply.top);
-    $("sup-bottom").textContent = fmt(z.supply.bottom);
+    $("sup-top").textContent = fmtPx(z.supply.top);
+    $("sup-bottom").textContent = fmtPx(z.supply.bottom);
     $("sup-strength").textContent = `Strength: ${z.supply.strength} — CVD ${z.supply.cvd >= 0 ? "+" : ""}${z.supply.cvd}`;
     $("sup-status").textContent = z.supply.status;
     $("zone-status").textContent = z.supply.status.includes("IN ZONE") || z.supply.status.includes("AT") ? z.supply.status : "AT SUPPLY";
   }
   if (z.demand) {
-    $("dem-top").textContent = fmt(z.demand.top);
-    $("dem-bottom").textContent = fmt(z.demand.bottom);
+    $("dem-top").textContent = fmtPx(z.demand.top);
+    $("dem-bottom").textContent = fmtPx(z.demand.bottom);
     $("dem-strength").textContent = `Strength: ${z.demand.strength} — CVD ${z.demand.cvd >= 0 ? "+" : ""}${z.demand.cvd}`;
     $("dem-status").textContent = z.demand.status;
   }
@@ -640,7 +661,7 @@ function renderSnapshot(snap) {
   /* zona multi-level S1-S3 / D1-D3 */
   const zml = snap.zones_multi;
   if (zml) {
-    const pill = (z, cls) => `<span class="zone-pill ${cls}">${z.level}: ${fmt(z.bottom)}–${fmt(z.top)} (${z.dist_pts >= 0 ? "+" : ""}${fmt(z.dist_pts, 1)}p)</span>`;
+    const pill = (z, cls) => `<span class="zone-pill ${cls}">${z.level}: ${fmtPx(z.bottom)}–${fmtPx(z.top)} (${z.dist_pts >= 0 ? "+" : ""}${fmtPx(z.dist_pts)})</span>`;
     $("zone-list").innerHTML =
       zml.supply.map(z => pill(z, "sup")).join("") + zml.demand.map(z => pill(z, "dem")).join("");
   }
@@ -649,7 +670,7 @@ function renderSnapshot(snap) {
   $("events-list").innerHTML = (snap.events || []).map(ev => `
     <div class="ev-row">
       <span class="ev-tag">${ev.tag}</span>
-      <span class="ev-price">${fmt(ev.price)}</span>
+      <span class="ev-price">${fmtPx(ev.price)}</span>
       <span class="ev-desc">${ev.desc}</span>
       <span class="ev-dir ${ev.dir === "UP" ? "up" : "down"}">${ev.dir === "UP" ? "▲ UP" : "▼ DOWN"}</span>
     </div>`).join("") || `<div class="dim-text">— belum ada event</div>`;
@@ -674,18 +695,23 @@ function renderSnapshot(snap) {
     const s = sim.stats;
     $("sim-equity").textContent = `EQ $${fmt(s.equity)} (${s.return_pct >= 0 ? "+" : ""}${s.return_pct}%)`;
     $("sim-equity").className = "chip " + (s.return_pct >= 0 ? "chip-green" : "chip-red");
-    const cell = (k, v, cls = "") => `<div class="sim-stat"><div class="v ${cls}">${v}</div><div class="k">${k}</div></div>`;
+    const cell = (k, v, cls = "", kCls = "") =>
+      `<div class="sim-stat"><div class="v ${cls}">${v}</div><div class="k ${kCls}">${k}</div></div>`;
     const usd = (v) => `${v >= 0 ? "+" : "-"}$${fmt(Math.abs(v), 2)}`;
+    const winUsd = Number(s.pl_win_usd ?? 0);
+    const lossUsd = Number(s.pl_loss_usd ?? 0);
+    const netUsd = s.net_usd !== undefined && s.net_usd !== null ? Number(s.net_usd) : (Number(s.equity) - 10000);
+    const maxDd = Number(s.max_dd ?? 0);
     $("sim-stats").innerHTML =
-      cell("TRADE", `${s.trades}<small style="color:var(--dim)">+${s.open} open</small>`) +
+      cell("TRADE", `${s.trades}<small style="color:var(--dim)"> +${s.open} open</small>`) +
       cell("WINRATE", `${s.winrate}%`, s.winrate >= 50 ? "green-text" : "red-text") +
-      cell("PROFIT F", s.profit_factor === null ? "--" : s.profit_factor) +
-      cell("AVG R", (s.avg_r >= 0 ? "+" : "") + s.avg_r, s.avg_r >= 0 ? "green-text" : "red-text") +
-      cell("WIN", `${s.wins} · ${usd(s.pl_win_usd ?? 0)}`, "green-text") +
-      cell("LOSS", `${s.losses} · ${usd(s.pl_loss_usd ?? 0)}`, "red-text") +
-      cell("NET", usd(s.net_usd ?? (s.equity - 10000)), s.net_usd >= 0 ? "green-text" : "red-text");
-    const stCls = (t) => t === "WIN" ? "WIN" : t === "LOSS" ? "LOSS" : t === "OPEN" ? "OPEN" : "TIME";
-    const _ = stCls; // (dipakai renderer detail)
+      cell("PROFIT F", s.profit_factor === null ? "--" : s.profit_factor,
+           (s.profit_factor !== null && Number(s.profit_factor) >= 1) ? "green-text" : "red-text") +
+      cell("AVG R", (s.avg_r >= 0 ? "+" : "") + s.avg_r + "R", s.avg_r >= 0 ? "green-text" : "red-text") +
+      cell("WIN", `${s.wins} · +$${fmt(Math.abs(winUsd), 2)}`, "green-text", "green-text") +
+      cell("LOSS", `${s.losses} · -$${fmt(Math.abs(lossUsd), 2)}`, "red-text", "red-text") +
+      cell("NET", usd(netUsd), netUsd >= 0 ? "green-text" : "red-text", netUsd >= 0 ? "green-text" : "red-text") +
+      cell("MAX DD", `${fmt(maxDd, 2)}%`, maxDd < 0 ? "red-text" : "dim-text");
     // detail review: kartu penuh per trade — dirender ke #sim-detail (halaman SIM)
     renderSimDetail(sim.trades || []);
   }
@@ -698,35 +724,41 @@ function renderSimDetail(trades) {
   const rows = trades.filter(t => f === "ALL"
     ? true
     : f === "OPEN" ? t.status === "OPEN"
-    : f === "WIN" ? (t.status === "WIN" || t.status === "BE+")
-    : (t.status === "LOSS" || t.status === "TIME"));
+    : f === "WIN" ? (t.status === "WIN" || t.status === "BE+" || (t.status !== "OPEN" && (t.pl_usd ?? t.r ?? 0) > 0))
+    : (t.status === "LOSS" || (t.status === "TIME" && (t.pl_usd ?? t.r ?? 0) <= 0)));
   box.innerHTML = rows.map(t => {
-    const cls = t.status === "OPEN" ? "open"
-      : t.pl_usd >= 0 ? "win" : "loss";
-    const pl = t.status === "OPEN" ? "—"
-      : `${t.pl_usd >= 0 ? "+" : "-"}$${fmt(Math.abs(t.pl_usd), 2)}`;
-    const plCls = t.pl_usd >= 0 ? "green-text" : "red-text";
-    const lvl = (lbl, v, cls2 = "") => `<span>${lbl} <b class="${cls2}">${fmt(v)}</b></span>`;
+    const isOpen = t.status === "OPEN";
+    const plNum = Number(t.pl_usd ?? 0);
+    const rShow = isOpen && t.floating_r !== undefined ? Number(t.floating_r) : Number(t.r ?? 0);
+    const isWin = !isOpen && (t.status === "WIN" || t.status === "BE+" || plNum > 0 || rShow > 0);
+    const cls = isOpen ? "open" : isWin ? "win" : "loss";
+    const plPrefix = isOpen ? "FLT " : "";
+    const pl = `${plPrefix}${plNum >= 0 ? "+" : "-"}$${fmt(Math.abs(plNum), 2)}`;
+    const plCls = plNum >= 0 ? "green-text" : "red-text";
+    const chipCls = isOpen ? "chip-amber" : isWin ? "chip-green" : "chip-red";
+    const lvl = (lbl, v, cls2 = "") => `<span>${lbl} <b class="${cls2}">${fmtPx(v)}</b></span>`;
+    const tp3Val = t.tp3 !== undefined ? t.tp3 : (t.tp2 !== undefined && t.tp1 !== undefined ? t.tp2 + (t.tp2 - t.tp1) : null);
+    const symLbl = t.symbol || (state.snap && state.snap.symbol) || "";
     return `
     <div class="sim-block ${cls}">
       <div class="head">
-        <span class="when">${String(t.time).slice(0, 16).replace("T", " ")} → ${t.exit_time ? String(t.exit_time).slice(11, 16) : "…"}</span>
-        <span class="sym">${t.symbol || ""} · <span class="${t.side === "LONG" ? "green-text" : "red-text"}">${t.side}</span> · ${t.kind}${t.kind === "GOLDEN" ? " ★" : ""}</span>
-        <span class="chip ${t.status === "OPEN" ? "chip-amber" : t.pl_usd >= 0 ? "chip-green" : "chip-red"}">${t.status}</span>
+        <span class="when">${String(t.time).slice(0, 16).replace("T", " ")} → ${t.exit_time ? String(t.exit_time).slice(11, 16) : "LIVE"}</span>
+        <span class="sym">${symLbl} · <span class="${t.side === "LONG" ? "green-text" : "red-text"}">${t.side}</span> · ${t.kind}${t.kind === "GOLDEN" ? " ★" : ""}</span>
+        <span class="chip ${chipCls}">${t.status}</span>
       </div>
       <div class="levels">
         ${lvl("ENTRY", t.entry)}${lvl("SL", t.sl, "red-text")}
         ${lvl("TP1", t.tp1, "green-text")}${lvl("TP2", t.tp2, "green-text")}
-        ${lvl("TP3*", t.tp3, "dim-text")}
+        ${lvl("TP3*", tp3Val, "dim-text")}
         ${t.hit1 ? `<span class="chip chip-green" style="padding:1px 6px;font-size:9px">TP1 ✓</span>` : ""}
       </div>
       <div class="levels">
         <span>UNIT <b>${fmt(t.units, 3)}</b></span>
         <span>RISK <b class="red-text">$${fmt(t.risk_usd, 2)}</b></span>
-        <span>P/L <b class="${plCls}">${pl}</b> (${t.r >= 0 ? "+" : ""}${fmt(t.r, 2)}R)</span>
+        <span>P/L <b class="${plCls}">${pl}</b> (<b class="${rShow >= 0 ? "green-text" : "red-text"}">${rShow >= 0 ? "+" : ""}${fmt(rShow, 2)}R</b>)</span>
         <span>BAR <b>${t.bars}</b></span>
       </div>
-      <div class="why">${t.reason || (t.status === "OPEN" ? "posisi berjalan — SL/TP masih bisa tersentuh" : "—")}</div>
+      <div class="why">${t.reason || (isOpen ? "Posisi berjalan — menunggu TP1 / SL" : "—")}</div>
     </div>`;
   }).join("") || `<div class="dim-text">— tidak ada trade pada filter ini</div>`;
 }
@@ -758,10 +790,10 @@ function renderSimDetail(trades) {
     $("setup-title").textContent = su.running ? "POSISI SIMULASI BERJALAN" : `${su.side} TRADE SETUP`;
     sc.classList.toggle("sell", su.side === "SELL");
     sc.classList.toggle("buy", su.side === "BUY");
-    $("su-entry").textContent = fmt(su.entry);
-    $("su-sl").textContent = fmt(su.sl);
-    $("su-tp1").textContent = fmt(su.tp1);
-    $("su-tp2").textContent = fmt(su.tp2);
+    $("su-entry").textContent = fmtPx(su.entry);
+    $("su-sl").textContent = fmtPx(su.sl);
+    $("su-tp1").textContent = fmtPx(su.tp1);
+    $("su-tp2").textContent = fmtPx(su.tp2);
     $("su-rr").textContent = su.rr;
   } else {
     $("setup-title").textContent = "TRADE SETUP";
@@ -795,7 +827,7 @@ function renderSimDetail(trades) {
     <div class="log-row">
       <span class="dim-text">${s.time.slice(5, 16).replace("T", " ")}</span>
       <span class="${s.side === "LONG" ? "log-side long" : "log-side short"}">${s.side}</span>
-      <span>${fmt(s.entry)}</span>
+      <span>${fmtPx(s.entry)}</span>
       <span class="dim-text">skor ${s.score}</span>
     </div>`).join("") : `<div class="dim-text">— Waiting for signals…</div>`;
 
@@ -805,8 +837,171 @@ function renderSimDetail(trades) {
   });
 
   updateRiskCalc();
+  if (snap.mt5) renderMt5Status(snap.mt5);
   drawOverlays();
   detectAlerts(snap);
+}
+
+/* ============================== METATRADER 5 ============================== */
+let _mt5FormHydrated = false;
+function renderMt5Status(st) {
+  if (!st) return;
+  const topChip = $("mt5-top-chip");
+  const badge = $("mt5-badge");
+  const armBtn = $("btn-mt5-arm");
+  const closeAllBtn = $("btn-mt5-close-all");
+  const msgEl = $("mt5-status-msg");
+
+  if (topChip) {
+    if (!st.installed) {
+      topChip.textContent = "MT5: N/A";
+      topChip.className = "chip chip-dim";
+    } else if (st.connected && st.armed) {
+      topChip.textContent = `MT5: ARMED (${st.resolved_symbol || "OK"})`;
+      topChip.className = "chip chip-green";
+    } else if (st.connected) {
+      topChip.textContent = `MT5: STANDBY`;
+      topChip.className = "chip chip-amber";
+    } else {
+      topChip.textContent = "MT5: OFF";
+      topChip.className = "chip chip-dim";
+    }
+  }
+
+  if (badge) {
+    const trLbl = (st.transport || "python").toUpperCase();
+    if (!st.installed) {
+      badge.textContent = trLbl === "MCP" ? "MCP URL BELUM DIISI" : "PKG BELUM TERPASANG";
+      badge.className = "chip chip-red";
+    } else if (st.connected && st.armed) {
+      badge.textContent = `ARMED · ${(st.account && st.account.trade_mode) || "MT5"} (${trLbl})`;
+      badge.className = "chip chip-green";
+    } else if (st.connected) {
+      badge.textContent = `STANDBY · ${(st.account && st.account.trade_mode) || "MT5"} (${trLbl})`;
+      badge.className = "chip chip-amber";
+    } else {
+      badge.textContent = "TERPUTUS";
+      badge.className = "chip chip-dim";
+    }
+  }
+
+  if (armBtn) {
+    armBtn.textContent = st.armed ? "AUTO-TRADE: ARMED (ON)" : "AUTO-TRADE: STANDBY (OFF)";
+    armBtn.className = st.armed ? "chip chip-green" : "chip mode-dim";
+  }
+
+  if ($("mt5-acc-mode")) {
+    const a = st.account;
+    $("mt5-acc-mode").textContent = a ? `#${a.login} (${a.trade_mode})` : "--";
+    $("mt5-acc-mode").className = "v " + (a ? (a.is_demo ? "gold-text" : "red-text") : "");
+    $("mt5-acc-eq").textContent = a ? `${a.currency || "$"} ${fmt(a.equity)}` : "--";
+    const si = st.symbol_info;
+    $("mt5-sym-now").textContent = si ? `${si.name} · ${si.spread_points}pt` : (st.resolved_symbol || "--");
+    const dp = st.daily_pnl_usd || 0;
+    $("mt5-daily-pnl").textContent = st.connected ? `${dp >= 0 ? "+" : "-"}$${fmt(Math.abs(dp))}` : "--";
+    $("mt5-daily-pnl").className = "v " + (st.daily_stop_hit ? "red-text" : dp >= 0 ? "green-text" : "red-text");
+  }
+
+  if (msgEl && st.last_error) {
+    msgEl.textContent = "❌ " + st.last_error;
+    msgEl.className = "setup-status red-text";
+  } else if (msgEl && st.connected && !msgEl.dataset.sticky) {
+    msgEl.textContent = st.armed
+      ? `● ARMED — sinyal lolos filter akan dieksekusi otomatis (split 50% TP1 + 50% TP2 + Auto-BE) di ${st.resolved_symbol}`
+      : `Terhubung ke ${st.resolved_symbol} — mode STANDBY (aman, belum mengirim order).`;
+    msgEl.className = "setup-status " + (st.armed ? "green-text" : "gold-text");
+  }
+
+  // Isi form sekali saat pertama muat (jangan menimpa input saat user mengetik)
+  const cfg = st.settings;
+  if (cfg && !_mt5FormHydrated && $("mt5-risk")) {
+    _mt5FormHydrated = true;
+    $("mt5-symbol").value = cfg.mt5_symbol || "";
+    if ($("mt5-transport")) $("mt5-transport").value = cfg.mt5_transport || "python";
+    $("mt5-path").value = cfg.mt5_terminal_path || "";
+    if ($("mt5-mcp-url")) $("mt5-mcp-url").value = cfg.mt5_mcp_url || "";
+    if ($("mt5-mcp-key")) {
+      $("mt5-mcp-key").value = "";
+      $("mt5-mcp-key").placeholder = cfg.mt5_mcp_key_set
+        ? "Key tersimpan (kosongkan bila tidak diganti)"
+        : "Bearer key dari Tools → Options → MCP";
+    }
+    $("mt5-risk").value = cfg.mt5_risk_pct ?? 1.0;
+    $("mt5-max-open").value = cfg.mt5_max_open_trades ?? 1;
+    $("mt5-max-spread").value = cfg.mt5_max_spread_points ?? 45;
+    $("mt5-daily-stop").value = cfg.mt5_daily_stop_r ?? 2.0;
+    $("mt5-be-offset").value = cfg.mt5_be_offset_points ?? 0;
+    $("mt5-deviation").value = cfg.mt5_deviation ?? 25;
+    $("mt5-magic").value = cfg.mt5_magic ?? 202605;
+    const dBtn = $("mt5-demo-only");
+    if (dBtn) {
+      const on = cfg.mt5_demo_only !== false;
+      dBtn.classList.toggle("on", on);
+      dBtn.textContent = `DEMO ONLY: ${on ? "ON" : "OFF"}`;
+    }
+  }
+
+  const posBox = $("mt5-positions");
+  const posList = st.positions || [];
+  if (closeAllBtn) closeAllBtn.style.display = posList.length ? "" : "none";
+  if (posBox) {
+    posBox.innerHTML = posList.length ? posList.map(p => `
+      <div class="mt5-pos-row">
+        <span><b>#${p.ticket}</b> ${p.symbol} <b class="${p.side === "BUY" ? "green-text" : "red-text"}">${p.side}</b> ${p.volume}L @ ${fmt(p.price_open)}</span>
+        <span>SL ${fmt(p.sl)} · TP ${fmt(p.tp)} · <b class="${p.profit >= 0 ? "green-text" : "red-text"}">${p.profit >= 0 ? "+" : ""}$${fmt(p.profit)}</b></span>
+        <button class="btn-ghost sm red-border" data-mt5-close="${p.ticket}">CLOSE</button>
+      </div>`).join("") : `<div class="dim-text">— tidak ada posisi terbuka</div>`;
+    posBox.querySelectorAll("[data-mt5-close]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const tk = parseInt(btn.dataset.mt5Close, 10);
+        fetch(api_("/api/mt5/close"), {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticket: tk }),
+        }).then(r => r.json()).then(j => {
+          if ($("mt5-status-msg")) $("mt5-status-msg").textContent = (j.ok ? "✅ " : "❌ ") + (j.msg || j.error || "");
+          if (j.status) renderMt5Status(j.status);
+        }).catch(() => {});
+      });
+    });
+  }
+
+  const evBox = $("mt5-events");
+  if (evBox) {
+    const evs = st.events || [];
+    evBox.innerHTML = evs.length ? evs.map(e => `
+      <div class="mt5-ev-row">
+        <span class="t">${String(e.time).slice(5, 19)}</span>
+        <span class="chip chip-dim" style="padding:1px 6px;font-size:9px">${String(e.kind || "").toUpperCase()}</span>
+        <span>${e.msg}</span>
+      </div>`).join("") : `<div class="dim-text">— belum ada aktivitas MT5</div>`;
+  }
+}
+
+function readMt5FormBody() {
+  const dBtn = $("mt5-demo-only");
+  const out = {
+    mt5_symbol: ($("mt5-symbol") ? $("mt5-symbol").value : "").trim(),
+    mt5_transport: ($("mt5-transport") ? $("mt5-transport").value : "python").trim(),
+    mt5_terminal_path: ($("mt5-path") ? $("mt5-path").value : "").trim(),
+    mt5_mcp_url: ($("mt5-mcp-url") ? $("mt5-mcp-url").value : "").trim(),
+    mt5_risk_pct: parseFloat($("mt5-risk")?.value || "1.0"),
+    mt5_max_open_trades: parseInt($("mt5-max-open")?.value || "1", 10),
+    mt5_max_spread_points: parseInt($("mt5-max-spread")?.value || "45", 10),
+    mt5_daily_stop_r: parseFloat($("mt5-daily-stop")?.value || "2.0"),
+    mt5_be_offset_points: parseInt($("mt5-be-offset")?.value || "0", 10),
+    mt5_deviation: parseInt($("mt5-deviation")?.value || "25", 10),
+    mt5_magic: parseInt($("mt5-magic")?.value || "202605", 10),
+    mt5_demo_only: dBtn ? dBtn.classList.contains("on") : true,
+  };
+  const k = ($("mt5-mcp-key") ? $("mt5-mcp-key").value : "").trim();
+  if (k) out.mt5_mcp_key = k;
+  return out;
+}
+
+function loadMt5Status() {
+  fetch(api_("/api/mt5/status")).then(r => r.ok ? r.json() : null).then(st => {
+    if (st) renderMt5Status(st);
+  }).catch(() => {});
 }
 
 /* ============================== RISK CALCULATOR ============================== */
@@ -921,12 +1116,17 @@ async function connectWS() {
     };
     state.ws.onmessage = (m) => {
       const msg = JSON.parse(m.data);
-      if (msg.type === "hello" && msg.snapshot) renderSnapshot(msg.snapshot);
-      if (msg.type === "snapshot" && !state.activeTf) renderSnapshot(msg.data);
-      else if (msg.type === "snapshot" && state.snap && msg.data && msg.data.tf_entry === state.snap.tf_entry) renderSnapshot(msg.data);
-      if (msg.type === "candle" && msg.tf === state.activeTf) {
+      const curSym = state.activeSymbol || (state.snap && state.snap.symbol);
+      const sameSym = !msg.symbol || !curSym || msg.symbol === curSym;
+      if (msg.type === "hello" && msg.snapshot && !state.snap) renderSnapshot(msg.snapshot);
+      if (msg.type === "snapshot" && sameSym && !state.activeTf) renderSnapshot(msg.data);
+      else if (msg.type === "snapshot" && sameSym && state.snap && msg.data && msg.data.tf_entry === state.snap.tf_entry) renderSnapshot(msg.data);
+      if (msg.type === "candle" && sameSym && msg.tf === state.activeTf) {
         const c = msg.candle;
-        state.candles.push(c);
+        const last = state.candles[state.candles.length - 1];
+        if (last && c[0] < last[0]) return;
+        if (last && c[0] === last[0]) state.candles[state.candles.length - 1] = c;
+        else state.candles.push(c);
         state.series.update({ time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4] });
         if (state.volSeries) {
           state.volSeries.update({
@@ -1017,8 +1217,80 @@ function bindUI() {
   };
   // muat form saat halaman setting dibuka pertama kali / tiap klik menu
   document.querySelectorAll('[data-view="setting"]').forEach(b =>
-    b.addEventListener("click", loadSettingsPage));
+    b.addEventListener("click", () => { loadSettingsPage(); loadMt5Status(); }));
   loadSettingsPage();
+  loadMt5Status();
+
+  // ---- MetaTrader 5 UI bindings ----
+  const mt5Top = $("mt5-top-chip");
+  if (mt5Top) mt5Top.addEventListener("click", () => switchView("setting"));
+
+  const mt5DemoBtn = $("mt5-demo-only");
+  if (mt5DemoBtn) mt5DemoBtn.addEventListener("click", () => {
+    const on = !mt5DemoBtn.classList.contains("on");
+    if (!on && !confirm("Matikan pengaman DEMO ONLY? Akun REAL bisa menerima order otomatis bila AUTO-TRADE diaktifkan!")) return;
+    mt5DemoBtn.classList.toggle("on", on);
+    mt5DemoBtn.textContent = `DEMO ONLY: ${on ? "ON" : "OFF"}`;
+  });
+
+  const setMt5Msg = (txt, cls) => {
+    const el = $("mt5-status-msg");
+    if (!el) return;
+    el.textContent = txt;
+    el.className = "setup-status " + (cls || "dim-text");
+    el.dataset.sticky = "1";
+    setTimeout(() => { delete el.dataset.sticky; }, 5000);
+  };
+
+  if ($("btn-mt5-save")) $("btn-mt5-save").addEventListener("click", () => {
+    fetch(api_("/api/mt5/settings"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(readMt5FormBody()),
+    }).then(r => r.json()).then(j => {
+      setMt5Msg(j.ok ? "✅ Konfigurasi MT5 tersimpan" : "❌ Gagal menyimpan konfigurasi", j.ok ? "green-text" : "red-text");
+      if (j.status) renderMt5Status(j.status);
+    }).catch(() => setMt5Msg("❌ Jaringan gagal", "red-text"));
+  });
+
+  if ($("btn-mt5-connect")) $("btn-mt5-connect").addEventListener("click", () => {
+    setMt5Msg("Menghubungkan ke terminal MT5…", "gold-text");
+    fetch(api_("/api/mt5/connect"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(readMt5FormBody()),
+    }).then(r => r.json()).then(j => {
+      setMt5Msg((j.ok ? "✅ " : "❌ ") + (j.msg || j.error || ""), j.ok ? "green-text" : "red-text");
+      if (j.status) renderMt5Status(j.status);
+    }).catch(() => setMt5Msg("❌ Gagal menghubungi backend", "red-text"));
+  });
+
+  if ($("btn-mt5-disconnect")) $("btn-mt5-disconnect").addEventListener("click", () => {
+    fetch(api_("/api/mt5/disconnect"), { method: "POST" }).then(r => r.json()).then(j => {
+      setMt5Msg("Koneksi MT5 diputus (STANDBY)", "dim-text");
+      if (j.status) renderMt5Status(j.status);
+    }).catch(() => {});
+  });
+
+  if ($("btn-mt5-arm")) $("btn-mt5-arm").addEventListener("click", () => {
+    const wantArm = !$("btn-mt5-arm").textContent.includes("ARMED");
+    fetch(api_("/api/mt5/arm"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ armed: wantArm }),
+    }).then(r => r.json()).then(j => {
+      setMt5Msg((j.ok ? (wantArm ? "✅ " : "⏸ ") : "❌ ") + (j.msg || j.error || ""), j.ok ? (wantArm ? "green-text" : "gold-text") : "red-text");
+      if (j.status) renderMt5Status(j.status);
+    }).catch(() => setMt5Msg("❌ Gagal ubah status ARM", "red-text"));
+  });
+
+  if ($("btn-mt5-close-all")) $("btn-mt5-close-all").addEventListener("click", () => {
+    if (!confirm("Tutup semua posisi MT5 yang dibuka oleh Alpha-Trade?")) return;
+    fetch(api_("/api/mt5/close"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ all: true }),
+    }).then(r => r.json()).then(j => {
+      setMt5Msg((j.ok ? "✅ " : "❌ ") + (j.msg || ""), j.ok ? "green-text" : "red-text");
+      if (j.status) renderMt5Status(j.status);
+    }).catch(() => {});
+  });
 
   // filter riwayat simulasi (halaman SIMULASI)
   state.simFilter = "ALL";
@@ -1068,20 +1340,124 @@ function bindUI() {
     if (b.classList.contains("disabled")) return;
     switchTf(b.dataset.tf);
   }));
-  // pindah simbol (multi-simbol native): muat ulang candles + snapshot
+  // pindah simbol (multi-pair MT5 / native): muat ulang candles + snapshot
+  async function selectSymbol(sym) {
+    if (!sym) return;
+    state.activeSymbol = sym;
+    const selSym = $("sel-symbol");
+    if (selSym) selSym.value = sym;
+    const tf = state.activeTf || (state.snap && state.snap.tf_entry) || "5m";
+    await loadCandles(tf);
+    try {
+      const q = `?tf=${tf}&symbol=${encodeURIComponent(sym)}`;
+      const snap = await (await fetch(api_("/api/snapshot" + q))).json();
+      if (!snap.error) renderSnapshot(snap);
+    } catch (e) {}
+    drawOverlays();
+  }
   const selSymEl = $("sel-symbol");
-  if (selSymEl) selSymEl.addEventListener("change", async () => {
-    state.activeSymbol = selSymEl.value;
-    if (state.activeTf) {
-      await loadCandles(state.activeTf);
-      try {
-        const q = `?tf=${state.activeTf}&symbol=${state.activeSymbol}`;
-        const snap = await (await fetch(api_("/api/snapshot" + q))).json();
-        if (!snap.error) renderSnapshot(snap);
-      } catch (e) {}
-      drawOverlays();
+  if (selSymEl) selSymEl.addEventListener("change", () => selectSymbol(selSymEl.value));
+
+  // ---- Modal kelola multi-pair MT5 (+ PAIR) ----
+  const pairModal = $("pair-modal");
+  const QUICK_PAIRS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "XAGUSD", "US500", "USTECH100M", "US30M", "DE40"];
+  const setPairMsg = (txt, cls = "dim-text") => {
+    const el = $("pair-modal-msg");
+    if (!el) return;
+    el.textContent = txt;
+    el.className = "setup-status " + cls;
+  };
+  async function addPairAndSwitch(sym) {
+    sym = (sym || "").trim().toUpperCase();
+    if (!sym) return;
+    setPairMsg(`Memuat candle & replay ${sym}…`, "gold-text");
+    try {
+      const r = await fetch(api_("/api/symbols/add"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: sym }),
+      });
+      const j = await r.json();
+      if (!j.ok) { setPairMsg("❌ " + (j.msg || j.error || "gagal"), "red-text"); return; }
+      setPairMsg("✅ " + (j.msg || `${j.symbol} ditambahkan`), "green-text");
+      await selectSymbol(j.symbol);
+      renderPairModal(j.symbols || []);
+    } catch (e) { setPairMsg("❌ Gagal menambah pair", "red-text"); }
+  }
+  async function removePair(sym) {
+    try {
+      const r = await fetch(api_("/api/symbols/remove"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: sym }),
+      });
+      const j = await r.json();
+      if (!j.ok) { setPairMsg("❌ " + (j.msg || j.error || "gagal"), "red-text"); return; }
+      setPairMsg(j.msg || `${sym} dihapus`, "dim-text");
+      const list = j.symbols || [];
+      if (state.activeSymbol === sym && list.length) await selectSymbol(list[0]);
+      renderPairModal(list);
+    } catch (e) {}
+  }
+  function renderPairModal(activeList) {
+    const act = activeList || (state.snap && state.snap.symbols) || [];
+    const cur = state.activeSymbol || (state.snap && state.snap.symbol);
+    const aBox = $("pair-active-list");
+    if (aBox) {
+      aBox.innerHTML = act.map(s => `
+        <span class="pair-chip ${s === cur ? "on" : ""}" data-psel="${s}">
+          <span>${s}</span>
+          ${act.length > 1 ? `<span class="del" data-pdel="${s}" title="Hapus ${s}">×</span>` : ""}
+        </span>`).join("");
+      aBox.querySelectorAll("[data-psel]").forEach(el => el.addEventListener("click", (ev) => {
+        if (ev.target.dataset.pdel) return;
+        selectSymbol(el.dataset.psel);
+        if (pairModal) pairModal.classList.add("hidden");
+      }));
+      aBox.querySelectorAll("[data-pdel]").forEach(el => el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        removePair(el.dataset.pdel);
+      }));
     }
-  });
+    const qBox = $("pair-quick-list");
+    if (qBox) {
+      qBox.innerHTML = QUICK_PAIRS.map(s => `
+        <button type="button" class="pair-chip ${act.includes(s) ? "on" : ""}" data-padd="${s}">
+          ${act.includes(s) ? "✓ " : "+ "}${s}
+        </button>`).join("");
+      qBox.querySelectorAll("[data-padd]").forEach(b => b.addEventListener("click", () => {
+        if (act.includes(b.dataset.padd)) { selectSymbol(b.dataset.padd); if (pairModal) pairModal.classList.add("hidden"); }
+        else addPairAndSwitch(b.dataset.padd);
+      }));
+    }
+  }
+  async function searchBrokerSymbols(q) {
+    const box = $("pair-broker-list");
+    if (!box) return;
+    try {
+      const d = await (await fetch(api_(`/api/mt5/symbols?q=${encodeURIComponent(q || "")}&limit=60`))).json();
+      const act = new Set(d.active || []);
+      box.innerHTML = (d.symbols || []).map(x => `
+        <button type="button" class="pair-chip ${act.has(x.symbol) ? "on" : ""}" data-badd="${x.symbol}">
+          ${act.has(x.symbol) ? "✓ " : "+ "}${x.symbol}
+        </button>`).join("") || `<div class="dim-text">Tidak ditemukan di broker MT5</div>`;
+      box.querySelectorAll("[data-badd]").forEach(b => b.addEventListener("click", () => addPairAndSwitch(b.dataset.badd)));
+    } catch (e) { box.innerHTML = `<div class="dim-text">MT5 belum terhubung</div>`; }
+  }
+  if ($("btn-pair-mgr") && pairModal) {
+    $("btn-pair-mgr").addEventListener("click", () => {
+      pairModal.classList.remove("hidden");
+      setPairMsg("");
+      renderPairModal();
+      searchBrokerSymbols($("pair-search")?.value || "");
+    });
+    $("btn-pair-close")?.addEventListener("click", () => pairModal.classList.add("hidden"));
+    pairModal.addEventListener("click", (ev) => { if (ev.target === pairModal) pairModal.classList.add("hidden"); });
+    let _pTimer = null;
+    $("pair-search")?.addEventListener("input", (ev) => {
+      clearTimeout(_pTimer);
+      _pTimer = setTimeout(() => searchBrokerSymbols(ev.target.value), 250);
+    });
+    $("btn-pair-add-manual")?.addEventListener("click", () => addPairAndSwitch($("pair-search")?.value));
+  }
   document.querySelectorAll(".bars-btn").forEach(b => b.addEventListener("click", () => {
     document.querySelectorAll(".bars-btn").forEach(x => x.classList.remove("on"));
     b.classList.add("on");
@@ -1336,8 +1712,9 @@ function postSettingsBody(extra = {}) {
   }).then(r => r.json()).then(j => {
     if (j.signal_golden !== undefined) setSignalChip("chip-golden", "SIGNAL GOLDEN", j.signal_golden);
     if (j.signal_high_risk !== undefined) setSignalChip("chip-highrisk", "SIGNAL HIGH RISK", j.signal_high_risk);
-    // snapshot diperbarui server (rebuild+broadcast); segarkan panel lokal
-    return fetch(api_("/api/snapshot")).then(r => r.json()).then(s => { renderSnapshot(s); return j; });
+    // snapshot diperbarui server (rebuild+broadcast); segarkan panel lokal sesuai simbol aktif
+    const sq = state.activeSymbol ? `?symbol=${encodeURIComponent(state.activeSymbol)}` : "";
+    return fetch(api_("/api/snapshot" + sq)).then(r => r.json()).then(s => { renderSnapshot(s); return j; });
   }).catch(() => {});
 }
 

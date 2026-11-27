@@ -201,6 +201,28 @@ def test_papersim_daily_stop_gate():
     assert sim.pending is not None, "hari baru = gate reset"
 
 
+def test_papersim_usd_summary_and_open_detail_fields():
+    sim = PaperSim(path=None, default_symbol="XAUUSD")
+    sim.persist_enabled = False
+    sim.queue_signal(pd.Timestamp("2026-01-01 00:00:00"), 1, 100.0, 95.0, 105.0, 110.0, mode="aggressive", kind="GOLDEN")
+    # Bar 1: open 100 -> fill, close 102 (masih OPEN)
+    sim.on_candle(pd.Timestamp("2026-01-01 00:05:00"), 100.0, 103.0, 99.0, 102.0)
+    open_items = sim.snapshot_list(10)
+    assert len(open_items) == 1
+    o0 = open_items[0]
+    assert o0["status"] == "OPEN" and o0["symbol"] == "XAUUSD"
+    assert o0["risk_usd"] == pytest.approx(100.0)
+    assert o0["units"] == pytest.approx(20.0)
+    assert o0["tp3"] == pytest.approx(115.0)
+    assert o0["pl_usd"] > 0 and o0["floating_r"] > 0 and o0["reason"]
+    # Bar 2: sentuh TP1 & TP2 -> WIN penuh
+    sim.on_candle(pd.Timestamp("2026-01-01 00:10:00"), 102.0, 111.0, 101.0, 110.5)
+    st = sim.summary()
+    assert st["wins"] == 1 and st["pl_win_usd"] > 0
+    assert st["pl_loss_usd"] == 0.0
+    assert st["net_usd"] == pytest.approx(st["equity"] - 10000.0)
+
+
 def test_papersim_daily_max_trades_gate():
     sim = PaperSim(path=None, daily_max_trades=1)
     sim.persist_enabled = False

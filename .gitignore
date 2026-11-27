@@ -11,6 +11,9 @@ state.json
 
 # secrets — JANGAN pernah commit key
 .env
+.mcp.json
+.codex/
+data/
 
 # OS / editor
 .DS_Store
@@ -23,9 +26,9 @@ NUL
 *.log
 _*.py
 
-# data tradoor (backfill)
+# data tradoor (backfill) & runtime sim
 tradoor-data/
-sim_trades.json
+sim_trades*.json
 alpha-trade-backend.zip
 
 # kredensial deploy (jangan pernah di-commit)

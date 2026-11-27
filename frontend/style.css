@@ -281,6 +281,10 @@ button { cursor: pointer; font-family: inherit; }
 .sim-stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; text-align: center; }
 .sim-stat .v { font-family: var(--mono); font-size: 13px; font-weight: 800; }
 .sim-stat .k { color: var(--dim); font-size: 9px; letter-spacing: .08em; }
+.sim-stat .k.green-text { color: var(--green); }
+.sim-stat .k.red-text { color: var(--red); }
+.bars-btn.green-border.on { color: var(--green); border-color: var(--green); background: var(--green-soft); }
+.bars-btn.red-border.on { color: var(--red); border-color: var(--red); background: var(--red-soft); }
 .sim-list { overflow-y: auto; display: flex; flex-direction: column; gap: 3px; font-family: var(--mono); font-size: 10.5px; }
 .sim-row { display: grid; grid-template-columns: 74px 44px 1fr 52px 58px; gap: 6px; align-items: center; border-bottom: 1px dashed var(--border); padding: 4px 0; }
 .sim-row .side { font-weight: 800; }
@@ -441,3 +445,24 @@ body.resizing .hsplit { cursor: row-resize; }
   .sim-layout .sim-side-l { height: auto; }
   .sim-layout .sim-side-l .sim-scroll { max-height: 60vh; }
 }
+
+/* ---------- panel MetaTrader 5 ---------- */
+.mt5-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 6px; }
+.mt5-list { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; max-height: 180px; overflow-y: auto; font-family: var(--mono); font-size: 11px; }
+.mt5-pos-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
+.mt5-ev-row { display: flex; gap: 8px; border-bottom: 1px dashed var(--border); padding: 4px 0; line-height: 1.4; }
+.mt5-ev-row .t { color: var(--dim); white-space: nowrap; }
+@media (max-width: 700px) {
+  .mt5-summary { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ---------- modal kelola multi-pair ---------- */
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; background: rgba(4, 6, 10, 0.78); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 14px; }
+.modal-backdrop.hidden { display: none; }
+.modal-box { width: min(560px, 100%); max-height: 85vh; overflow-y: auto; border-color: rgba(217,182,74,.45); }
+.pair-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pair-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-family: var(--mono); font-size: 11px; font-weight: 700; cursor: pointer; }
+.pair-chip.on { border-color: var(--gold); color: var(--gold); background: var(--gold-soft); }
+.pair-chip .del { color: var(--red); font-weight: 900; padding: 0 2px; cursor: pointer; }
+.pair-input { flex: 1; min-width: 180px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+.pair-broker-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 190px; overflow-y: auto; margin-top: 6px; }

@@ -60,7 +60,7 @@ def _norm_item(time_iso, title, source, url, provider):
 
 
 class NewsFeed:
-    def __init__(self, ttl=NEWS_TTL):
+    def __init__(self, ttl=NEWS_TTL, mcp_client=None):
         self.ttl = ttl
         self.items = []                # hasil akhir (sorted, difilter)
         self._ts = 0                   # waktu cache terakhir
@@ -69,13 +69,45 @@ class NewsFeed:
         self._raw = {}                 # provider -> (ts, items) untuk verifikasi silang
         self._lock = threading.Lock()
         self._thread = None
+        self._mcp = mcp_client
+        if self._mcp is None and os.getenv("AT_MT5_MCP_URL"):
+            from .mt5_mcp import MT5McpClient
+            self._mcp = MT5McpClient(
+                url=os.getenv("AT_MT5_MCP_URL", ""),
+                api_key=os.getenv("AT_MT5_MCP_KEY", ""),
+            )
         self.keys = {
             "newsdata": os.getenv("NEWS_KEY_NEWSDATA", "pub_f9baa82bf10240d4bc29c431ef0817d0"),
             "finnhub": os.getenv("NEWS_KEY_FINNHUB", ""),
             "fmp": os.getenv("NEWS_KEY_FMP", "d1c4Rk4nOBFM7BzfSeA8fj85FAsYws7X"),
         }
 
+    def configure_mcp(self, url="", api_key=""):
+        """Pasang atau perbarui klien MT5 MCP secara dinamis dari pengaturan runtime."""
+        url = (url or "").strip()
+        api_key = (api_key or "").strip()
+        if not url:
+            self._mcp = None
+            return
+        from .mt5_mcp import MT5McpClient
+        self._mcp = MT5McpClient(url=url, api_key=api_key)
+
     # ----------------------------- providers -------------------------------
+    def _fetch_mt5_mcp(self):
+        if self._mcp is None or not self._mcp.configured():
+            raise RuntimeError("MT5 MCP belum dikonfigurasi")
+        out = []
+        try:
+            out.extend(self._mcp.fetch_economic_calendar_news())
+        except Exception as e:
+            print(f"[news] mt5-cal gagal: {e}", flush=True)
+        try:
+            for it in self._mcp.fetch_terminal_news():
+                it["score"] = max(it.get("score", 0), _score(it.get("title")))
+                out.append(it)
+        except Exception as e:
+            print(f"[news] mt5-news gagal: {e}", flush=True)
+        return out
     def _fetch_newsdata(self):
         r = requests.get("https://newsdata.io/api/1/latest", timeout=12, params={
             "apikey": self.keys["newsdata"], "category": "business",
@@ -129,9 +161,15 @@ class NewsFeed:
 
     # ----------------------------- refresh ---------------------------------
     def _providers_in_order(self):
-        return [("newsdata", self._fetch_newsdata),
-                ("finnhub", self._fetch_finnhub),
-                ("fmp", self._fetch_fmp)]
+        provs = []
+        if self._mcp is not None and self._mcp.configured():
+            provs.append(("mt5-mcp", self._fetch_mt5_mcp))
+        provs.extend([
+            ("newsdata", self._fetch_newsdata),
+            ("finnhub", self._fetch_finnhub),
+            ("fmp", self._fetch_fmp),
+        ])
+        return provs
 
     def refresh(self, force=False):
         """Ambil berita bila cache basi. Satu provider sukses = cukup."""

@@ -28,6 +28,19 @@ from .confluence_engine import Config, atr as atr_fn, ema, rsi
 from .smc_structure import structure_events
 
 
+def price_digits(px):
+    """Tentukan jumlah desimal otomatis sesuai skala harga instrumen:
+    <20 -> 5 (EURUSD/GBPUSD), <500 -> 3 (USDJPY/XAGUSD), >=500 -> 2 (XAUUSD/US500)."""
+    p = abs(float(px or 0))
+    if p == 0:
+        return 2
+    if p < 20:
+        return 5
+    if p < 500:
+        return 3
+    return 2
+
+
 def pdh_pdl(df_1h):
     """Previous Day High/Low dari buffer 1h (smc.previous_high_low).
     Nilai = hari UTC sebelumnya; `broken` = harga sudah menembus level hari ini.
@@ -43,7 +56,8 @@ def pdh_pdl(df_1h):
     ph, pl = float(last["PreviousHigh"]), float(last["PreviousLow"])
     if np.isnan(ph) or np.isnan(pl):
         return None
-    return {"pdh": round(ph, 2), "pdl": round(pl, 2),
+    d = price_digits(ph)
+    return {"pdh": round(ph, d), "pdl": round(pl, d),
             "broken_high": bool(last["BrokenHigh"]), "broken_low": bool(last["BrokenLow"])}
 
 PIP = 10.0  # XAUUSD: 1 pip = 0.1 pt -> strength poin = pt; 25 pips = 2.5 pt
@@ -291,17 +305,18 @@ def multi_zones(df, a, n_levels=3, L=5, lookback=300):
     sup = sorted(sup, key=lambda z: z["top"], reverse=True)   # S1 terdekat dari atas
     dem = sorted(dem, key=lambda z: z["bottom"], reverse=True)  # D1 terdekat dari bawah
     out = {"supply": [], "demand": []}
+    d = price_digits(c)
     for i, z in enumerate(sup, 1):
-        out["supply"].append({"level": f"S{i}", "top": round(z["top"], 2),
-                              "bottom": round(z["bottom"], 2),
-                              "strength_pts": round(z["top"] - z["bottom"], 2),
-                              "dist_pts": round(z["bottom"] - c, 2),
+        out["supply"].append({"level": f"S{i}", "top": round(z["top"], d),
+                              "bottom": round(z["bottom"], d),
+                              "strength_pts": round(z["top"] - z["bottom"], d),
+                              "dist_pts": round(z["bottom"] - c, d),
                               "time": str(z["time"])})
     for i, z in enumerate(dem, 1):
-        out["demand"].append({"level": f"D{i}", "top": round(z["top"], 2),
-                              "bottom": round(z["bottom"], 2),
-                              "strength_pts": round(z["top"] - z["bottom"], 2),
-                              "dist_pts": round(c - z["top"], 2),
+        out["demand"].append({"level": f"D{i}", "top": round(z["top"], d),
+                              "bottom": round(z["bottom"], d),
+                              "strength_pts": round(z["top"] - z["bottom"], d),
+                              "dist_pts": round(c - z["top"], d),
                               "time": str(z["time"])})
     return out
 
@@ -383,7 +398,8 @@ def events_full(df, L=5, sweep_lookback=20, max_events=8):
                      "Bearish trend change — HH to LH structure flip", "DOWN"))
 
     rows.sort(key=lambda r: r[0])
-    return [{"time": str(t), "tag": tag, "price": round(price, 2), "desc": desc, "dir": d}
+    dp = price_digits(df["close"].iloc[-1])
+    return [{"time": str(t), "tag": tag, "price": round(price, dp), "desc": desc, "dir": d}
             for t, price, tag, desc, d in rows[-max_events:]]
 
 
@@ -596,7 +612,8 @@ def fvg_zones(df, max_age=80, max_gaps=5):
             continue
         age = n - 1 - i
         if age <= max_age:
-            out.append({"kind": kind, "top": round(top, 2), "bottom": round(bottom, 2),
+            dp = price_digits(top)
+            out.append({"kind": kind, "top": round(top, dp), "bottom": round(bottom, dp),
                         "age": int(age)})
     out.sort(key=lambda g: g["age"])                          # terbaru dulu
     return out[:max_gaps]
@@ -630,7 +647,8 @@ def order_blocks(df, L=5, max_blocks=4, lookback=250):
                 continue
             if kind == "bear" and i + 1 < n and h[i + 1:].max() >= top:
                 continue
-            blocks.append({"kind": kind, "top": round(top, 2), "bottom": round(bottom, 2),
+            dp = price_digits(top)
+            blocks.append({"kind": kind, "top": round(top, dp), "bottom": round(bottom, dp),
                            "time": str(w.index[j])})
     # dedup by (kind, top, bottom) + ambil terbaru
     seen, uniq = set(), []
@@ -657,5 +675,6 @@ def forecast(df, entry_hint=None):
         levels = {"tp1": base - a, "tp2": base - 2 * a, "tp3": base - 3 * a, "sl": base + 1.5 * a}
     else:
         levels = {"tp1": base + a, "tp2": base + 2 * a, "tp3": base + 3 * a, "sl": base - 1.5 * a}
+    dp = price_digits(df["close"].iloc[-1])
     return {"direction": direction, "slope_ema20": round(slope, 4),
-            "above_ema50": above, "atr": round(a, 2), **{k: round(v, 2) for k, v in levels.items()}}
+            "above_ema50": above, "atr": round(a, dp), **{k: round(v, dp) for k, v in levels.items()}}
