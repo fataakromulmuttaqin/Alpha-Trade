@@ -35,17 +35,13 @@ if not %errorlevel%==0 (
   echo [mt5] MetaTrader 5 sudah berjalan.
 )
 
-:: 3) Jalankan Alpha-Trade + muat semua setting (MT5/MCP/Telegram) + auto-arm DEMO + buka browser
+:: 3) Jalankan Alpha-Trade memakai pilihan TF/Mode terakhir user di UI (default awal: 1H / AUTO)
 echo [run] Menjalankan Alpha-Trade di http://localhost:%PORT% ...
 "%PY311%" -m backend.run ^
   --provider mt5 ^
   --mt5-symbol XAUUSD ^
   --mt5-path "%MT5_EXE%" ^
   --label XAUUSD ^
-  --entry-tf 1h ^
-  --htf 4h ^
-  --sensitivity edge1h ^
-  --exit engine ^
   --port %PORT% ^
   --mt5-auto-arm ^
   --open-browser

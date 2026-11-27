@@ -529,6 +529,16 @@ function renderSnapshot(snap) {
   if (!snap) return;
   state.snap = snap;
   if (snap.engine_entry) state.engineTf = snap.engine_entry;
+  const engBadge = $("engine-tf-badge");
+  const engBtn = $("btn-set-engine-tf");
+  if (engBadge && state.engineTf) {
+    engBadge.textContent = `ENGINE TF: ${state.engineTf.toUpperCase()}`;
+  }
+  if (engBtn && state.engineTf && state.activeTf) {
+    const diff = state.activeTf !== state.engineTf;
+    engBtn.style.display = diff ? "" : "none";
+    if (diff) engBtn.textContent = `JADIKAN ${state.activeTf.toUpperCase()} TF SINYAL`;
+  }
   const st = snap.stats;
   if (snap.price_digits || (st && st.price)) {
     applyChartPrecision(snap.price_digits || inferDigits(st.price));
@@ -1159,8 +1169,9 @@ async function connectWS() {
 async function switchTf(tf) {
   const ok = await loadCandles(tf);
   if (!ok) return;
+  try { localStorage.setItem("at-tf", tf); } catch (e) {}
   try {
-    const symQ = state.activeSymbol ? `&symbol=${state.activeSymbol}` : "";
+    const symQ = state.activeSymbol ? `&symbol=${encodeURIComponent(state.activeSymbol)}` : "";
     const snap = await (await fetch(api_(`/api/snapshot?tf=${tf}${symQ}`))).json();
     if (!snap.error) {
       renderSnapshot(snap);          // panel + overlay khusus TF ini
@@ -1344,6 +1355,7 @@ function bindUI() {
   async function selectSymbol(sym) {
     if (!sym) return;
     state.activeSymbol = sym;
+    try { localStorage.setItem("at-symbol", sym); } catch (e) {}
     const selSym = $("sel-symbol");
     if (selSym) selSym.value = sym;
     const tf = state.activeTf || (state.snap && state.snap.tf_entry) || "5m";
@@ -1357,6 +1369,20 @@ function bindUI() {
   }
   const selSymEl = $("sel-symbol");
   if (selSymEl) selSymEl.addEventListener("change", () => selectSymbol(selSymEl.value));
+
+  // ubah TF engine sinyal & simulasi langsung dari UI (tersimpan di server)
+  const setEngBtn = $("btn-set-engine-tf");
+  if (setEngBtn) setEngBtn.addEventListener("click", async () => {
+    if (!state.activeTf) return;
+    setEngBtn.disabled = true;
+    setEngBtn.textContent = "MENGHITUNG ULANG…";
+    try {
+      await postSettingsBody({ entry_tf: state.activeTf });
+      await switchTf(state.activeTf);
+    } finally {
+      setEngBtn.disabled = false;
+    }
+  });
 
   // ---- Modal kelola multi-pair MT5 (+ PAIR) ----
   const pairModal = $("pair-modal");
@@ -1712,8 +1738,11 @@ function postSettingsBody(extra = {}) {
   }).then(r => r.json()).then(j => {
     if (j.signal_golden !== undefined) setSignalChip("chip-golden", "SIGNAL GOLDEN", j.signal_golden);
     if (j.signal_high_risk !== undefined) setSignalChip("chip-highrisk", "SIGNAL HIGH RISK", j.signal_high_risk);
-    // snapshot diperbarui server (rebuild+broadcast); segarkan panel lokal sesuai simbol aktif
-    const sq = state.activeSymbol ? `?symbol=${encodeURIComponent(state.activeSymbol)}` : "";
+    // snapshot diperbarui server (rebuild+broadcast); segarkan panel lokal sesuai simbol & TF aktif
+    const params = [];
+    if (state.activeTf) params.push(`tf=${encodeURIComponent(state.activeTf)}`);
+    if (state.activeSymbol) params.push(`symbol=${encodeURIComponent(state.activeSymbol)}`);
+    const sq = params.length ? `?${params.join("&")}` : "";
     return fetch(api_("/api/snapshot" + sq)).then(r => r.json()).then(s => { renderSnapshot(s); return j; });
   }).catch(() => {});
 }
@@ -1727,10 +1756,17 @@ async function loadInitialData() {
   // retry: server baru restart -> buffer belum siap (503); coba hingga siap
   for (let i = 0; i < 60; i++) {
     try {
-      const snap = await (await fetch(api_("/api/snapshot"))).json();
+      const savedSym = localStorage.getItem("at-symbol");
+      const savedTf = localStorage.getItem("at-tf");
+      const initQ = savedSym ? `?symbol=${encodeURIComponent(savedSym)}` : "";
+      const snap = await (await fetch(api_("/api/snapshot" + initQ))).json();
       if (!snap.error) {
+        const list = snap.symbols || [snap.symbol];
+        state.activeSymbol = (savedSym && list.includes(savedSym)) ? savedSym : snap.symbol;
         renderSnapshot(snap);
-        await switchTf(snap.tf_entry || "15m");
+        const wantTf = savedTf || snap.tf_entry || "1h";
+        const ok = await switchTf(wantTf);
+        if (!ok) await switchTf(snap.tf_entry || "1h");
         _bootDataDone = true;
         return;
       }

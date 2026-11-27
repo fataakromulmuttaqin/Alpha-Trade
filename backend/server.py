@@ -246,11 +246,10 @@ class DashboardServer:
                     return
                 if body is None:
                     return self._json({"error": "body JSON tidak valid"}, 400)
-                before = (srv.state.sensitivity, srv.state.exit_protocol)
+                before = (srv.state.sensitivity, srv.state.exit_protocol, srv.state.entry_tf)
                 result = srv.state.apply_settings(body)
-                mode_changed = (srv.state.sensitivity, srv.state.exit_protocol) != before
-                # mode analisis berubah -> hitung ulang sinyal historis agar
-                # marker di chart langsung mencerminkan mode baru
+                mode_changed = (srv.state.sensitivity, srv.state.exit_protocol, srv.state.entry_tf) != before
+                # mode analisis / engine TF berubah -> hitung ulang sinyal historis & replay
                 srv.state.rebuild_and_broadcast(recompute_signals=mode_changed)
                 return self._json(result)
 

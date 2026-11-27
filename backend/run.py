@@ -399,19 +399,34 @@ class AppState:
             print(f"[auto] mode -> {target} ({cond})", flush=True)
 
     def apply_settings(self, body):
-        """POST /api/settings: sensitivity, exit_protocol, filter sinyal."""
+        """POST /api/settings: sensitivity, exit_protocol, entry_tf, filter sinyal, telegram."""
         from .godmode_engine import apply_mode, SENSITIVITY_PRESETS, EXIT_PRESETS
         out = {"applied": []}
+        changed_persist = False
         sens = body.get("sensitivity")
         ex = body.get("exit_protocol")
         sens_changed = sens in ("auto", *SENSITIVITY_PRESETS.keys())
         ex_changed = ex in EXIT_PRESETS.keys()
         if sens_changed:
             self.sensitivity = sens
+            self.app_settings["sensitivity"] = sens
+            changed_persist = True
             out["applied"].append("sensitivity:" + sens)
         if ex_changed:
             self.exit_protocol = ex
+            self.app_settings["exit_protocol"] = ex
+            changed_persist = True
             out["applied"].append("exit:" + ex)
+        etf = body.get("entry_tf")
+        htf_map = {"1m": "15m", "5m": "15m", "15m": "1h", "30m": "4h", "1h": "4h", "4h": "4h"}
+        if etf in htf_map and etf != self.entry_tf:
+            self.entry_tf = etf
+            self.htf = body.get("htf") if body.get("htf") in htf_map else htf_map[etf]
+            self.cfg.htf = self.htf
+            self.app_settings["entry_tf"] = self.entry_tf
+            self.app_settings["htf"] = self.htf
+            changed_persist = True
+            out["applied"].append(f"entry_tf:{self.entry_tf}/{self.htf}")
         if sens_changed or ex_changed:
             if self.sensitivity == "auto":
                 if sens_changed:
@@ -428,9 +443,13 @@ class AppState:
                            exit_protocol=self.exit_protocol)
         if "signal_golden" in body:
             self.signal_golden = bool(body["signal_golden"])
+            self.app_settings["signal_golden"] = self.signal_golden
+            changed_persist = True
             out["applied"].append(f"signal_golden:{self.signal_golden}")
         if "signal_high_risk" in body:
             self.signal_high_risk = bool(body["signal_high_risk"])
+            self.app_settings["signal_high_risk"] = self.signal_high_risk
+            changed_persist = True
             out["applied"].append(f"signal_high_risk:{self.signal_high_risk}")
         # pengaturan notifikasi Telegram (persisten: cache/app_settings.json)
         st = getattr(self, "app_settings", None)
@@ -441,12 +460,15 @@ class AppState:
             if k in body:
                 st[k] = body[k]
                 changed_tg = True
-        if changed_tg:
+        if changed_tg or changed_persist:
             self.app_settings = st
             self.persist_app_settings()
-            out["applied"].append("telegram")
+            if changed_tg:
+                out["applied"].append("telegram")
         out["sensitivity"] = self.sensitivity
         out["exit_protocol"] = self.exit_protocol
+        out["entry_tf"] = self.entry_tf
+        out["htf"] = self.htf
         out["signal_golden"] = self.signal_golden
         out["signal_high_risk"] = self.signal_high_risk
         print(f"[settings] {out}", flush=True)
@@ -967,8 +989,8 @@ async def main():
     ap.add_argument("--demo", action="store_true", help="data sintetis tanpa internet")
     ap.add_argument("--symbol", default=os.getenv("AT_SYMBOL", "PAXGUSDT"))
     ap.add_argument("--label", default=os.getenv("AT_LABEL", "XAUUSD"))
-    ap.add_argument("--entry-tf", default=os.getenv("AT_ENTRY_TF", "15m"))
-    ap.add_argument("--htf", default=os.getenv("AT_HTF", "4h"))
+    ap.add_argument("--entry-tf", default=os.getenv("AT_ENTRY_TF", ""))
+    ap.add_argument("--htf", default=os.getenv("AT_HTF", ""))
     ap.add_argument("--market", default=os.getenv("AT_MARKET", "spot"),
                     choices=["spot", "futures"])
     ap.add_argument("--provider", default=os.getenv("AT_PROVIDER", "binance"),
@@ -1004,30 +1026,39 @@ async def main():
     ap.add_argument("--tradoor-market", default=os.getenv("AT_TRADOOR_MARKET", ""),
                     help="market tradoor, mis. binance-perp:BTCUSDT (default dari --symbol)")
     ap.add_argument("--bars", type=int, default=int(os.getenv("AT_BARS", "1500")))
-    ap.add_argument("--sensitivity", default=os.getenv("AT_SENSITIVITY", "auto"),
-                    help="preset mode saat boot (mis. edge1h); auto = adaptif rezim")
+    ap.add_argument("--sensitivity", default=os.getenv("AT_SENSITIVITY", ""),
+                    help="preset mode saat boot (kosong = pakai pilihan terakhir user di UI)")
     ap.add_argument("--exit", dest="exit_protocol",
-                    default=os.getenv("AT_EXIT", "quick"),
-                    help="exit protocol saat boot (engine = SL/TP dari tuning)")
+                    default=os.getenv("AT_EXIT", ""),
+                    help="exit protocol saat boot (kosong = pakai pilihan terakhir user di UI)")
     ap.add_argument("--port", type=int,
                     default=int(os.getenv("AT_PORT") or os.getenv("PORT") or "8788"))
     ap.add_argument("--ws-port", type=int, default=int(os.getenv("AT_WS_PORT", "8789")))
     args = ap.parse_args()
 
-    cfg = Config(htf=args.htf)
     executor = TestnetExecutor(market=args.market)
-    state = AppState(args.symbol, cfg, executor, label=args.label)
+    state = AppState(args.symbol, Config(), executor, label=args.label)
     state.provider = args.provider
     state.bars = args.bars
-    # preset boot: dipasang SEBELUM seeding/replay agar sim & sinyal terekam
-    # langsung di bawah mode yang diminta
+    # Prioritas konfigurasi: argumen CLI eksplisit > pilihan terakhir user di UI (cache/app_settings.json) > default
+    saved = state.app_settings or {}
+    args.entry_tf = args.entry_tf or saved.get("entry_tf") or "1h"
+    args.htf = args.htf or saved.get("htf") or "4h"
+    state.cfg.htf = args.htf
+    cfg = state.cfg
     from .godmode_engine import SENSITIVITY_PRESETS, EXIT_PRESETS, apply_mode
-    if args.sensitivity in SENSITIVITY_PRESETS or args.sensitivity == "auto":
-        state.sensitivity = args.sensitivity
-    if args.exit_protocol in EXIT_PRESETS:
-        state.exit_protocol = args.exit_protocol
+    eff_sens = args.sensitivity or saved.get("sensitivity") or "auto"
+    eff_exit = args.exit_protocol or saved.get("exit_protocol") or "quick"
+    if eff_sens in SENSITIVITY_PRESETS or eff_sens == "auto":
+        state.sensitivity = eff_sens
+    if eff_exit in EXIT_PRESETS:
+        state.exit_protocol = eff_exit
+    if "signal_golden" in saved:
+        state.signal_golden = bool(saved["signal_golden"])
     if args.signal_high_risk:
         state.signal_high_risk = True
+    elif "signal_high_risk" in saved:
+        state.signal_high_risk = bool(saved["signal_high_risk"])
     if state.sensitivity != "auto":
         apply_mode(state.cfg, sensitivity=state.sensitivity,
                    exit_protocol=state.exit_protocol)
